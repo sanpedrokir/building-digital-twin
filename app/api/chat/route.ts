@@ -124,7 +124,8 @@ For simulation questions, use the database status first, then explain the likely
         selectedTool = updateAssetStatusTool;
       }
 
-      const toolResult = await selectedTool.invoke(call.args as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolResult = await (selectedTool as any).invoke(call.args);
 
       toolMessages.push({
         role: "tool" as const,
