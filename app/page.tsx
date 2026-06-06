@@ -701,7 +701,7 @@ export default function Home() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [activeTab, setActiveTab] = useState<"building" | "chat" | "agent" | "tickets">("agent");
+  const [activeTab, setActiveTab] = useState<"building" | "chat" | "agent" | "tickets">("chat");
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const [agentLoading, setAgentLoading] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -830,8 +830,8 @@ export default function Home() {
             )}
           </button>
           <button onClick={() => setActiveTab("agent")}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${activeTab === "agent" ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"}`}>
-            🤖 Agent
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors border ${activeTab === "agent" ? "bg-purple-600 text-white border-purple-500" : "text-purple-300 border-purple-700 hover:bg-purple-700 hover:text-white"}`}>
+            🤖 Maintenance Agent
           </button>
         </div>
       </header>
@@ -870,8 +870,8 @@ export default function Home() {
           Tickets
         </button>
         <button onClick={() => setActiveTab("agent")}
-          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${activeTab === "agent" ? "text-purple-400 border-t-2 border-purple-400 -mt-px" : "text-gray-500"}`}>
-          <span className="text-base leading-none">🤖</span>
+          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-sm font-bold transition-colors ${activeTab === "agent" ? "text-purple-400 border-t-2 border-purple-400 -mt-px" : "text-purple-500"}`}>
+          <span className="text-xl leading-none">🤖</span>
           Agent
         </button>
       </nav>
