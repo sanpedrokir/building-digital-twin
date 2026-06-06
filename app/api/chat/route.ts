@@ -158,7 +158,7 @@ const updateAssetStatusTool = tool(
 
 export async function POST(req: Request) {
   try {
-    const { message } = await req.json();
+    const { message, history = [] } = await req.json();
 
     const model = new ChatOpenAI({
       model: "gpt-4o-mini",
@@ -199,8 +199,14 @@ When giving answers:
 `;
 
 
+    const historyMessages = (history as { role: string; content: string }[]).map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+
     const firstResponse = await model.invoke([
       { role: "system", content: systemPrompt },
+      ...historyMessages,
       { role: "user", content: message },
     ]);
 
@@ -248,6 +254,7 @@ When giving answers:
 
     const finalResponse = await model.invoke([
       { role: "system", content: systemPrompt },
+      ...historyMessages,
       { role: "user", content: message },
       firstResponse,
       ...toolMessages,

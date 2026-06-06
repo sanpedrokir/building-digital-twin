@@ -475,13 +475,14 @@ export default function Home() {
   }, [assets]);
 
   const handleSend = async (message: string) => {
+    const history = messages;
     setMessages((prev) => [...prev, { role: "user", content: message }]);
     setChatLoading(true);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, history }),
       });
       const data = await res.json();
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
