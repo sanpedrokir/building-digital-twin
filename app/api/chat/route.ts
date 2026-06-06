@@ -61,124 +61,39 @@ const STATUS_MAP: Record<string, string> = {
   repair: "maintenance",
 };
 
-// Strip punctuation, normalise whitespace, lowercase
-function normalizeAssetName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-// Character-level edit distance to handle typos within a word
-function levenshtein(a: string, b: string): number {
-  const m = a.length, n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  );
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
-  return dp[m][n];
-}
-
-// Fuzzy similarity between two individual words (0–1)
-function fuzzyWordMatch(w1: string, w2: string): number {
-  if (w1 === w2) return 1;
-  const maxLen = Math.max(w1.length, w2.length);
-  if (maxLen === 0) return 1;
-  return Math.max(0, 1 - levenshtein(w1, w2) / maxLen);
-}
-
-// Each query word finds its best fuzzy match in the asset words, averaged
-function wordSimilarity(a: string, b: string): number {
-  const na = normalizeAssetName(a);
-  const nb = normalizeAssetName(b);
-  if (na === nb) return 1;
-  const wordsA = na.split(" ").filter(Boolean);
-  const wordsB = nb.split(" ").filter(Boolean);
-  if (wordsA.length === 0 || wordsB.length === 0) return 0;
-  const scoreA = wordsA.map((w) => Math.max(...wordsB.map((v) => fuzzyWordMatch(w, v))));
-  const scoreB = wordsB.map((w) => Math.max(...wordsA.map((v) => fuzzyWordMatch(w, v))));
-  return ([...scoreA, ...scoreB].reduce((s, x) => s + x, 0)) / (scoreA.length + scoreB.length);
-}
-
 const updateAssetStatusTool = tool(
-  async ({ asset_name, status, floor_no }) => {
+  async ({ asset_name, status }) => {
     const normalized = STATUS_MAP[status.toLowerCase().trim()] ?? status.toLowerCase().trim();
-
-    // Fetch all assets and find fuzzy matches
-    const allAssets = await pool.query("SELECT id, asset_name, floor_no FROM building_assets");
-    const threshold = 0.4;
-
-    // Score every asset
-    const scored = (allAssets.rows as { id: number; asset_name: string; floor_no: number }[])
-      .map((row) => ({ ...row, score: wordSimilarity(asset_name, row.asset_name) }))
-      .filter((row) => row.score >= threshold)
-      .sort((a, b) => b.score - a.score);
-
-    if (scored.length === 0) {
-      return `Asset not found. Could not find a close match for "${asset_name}".`;
-    }
-
-    const topScore = scored[0].score;
-    const topMatches = scored.filter((r) => r.score === topScore);
-
-    // Multiple floors match — require floor_no to disambiguate
-    if (topMatches.length > 1 && !floor_no) {
-      const floors = topMatches.map((r) => r.floor_no).sort((a, b) => a - b).join(", ");
-      return `"${scored[0].asset_name}" exists on multiple floors (${floors}). Please specify a floor number, e.g. "Update Lift B on floor 5 to faulty".`;
-    }
-
-    // Pick by floor if provided, otherwise take the single top match
-    let target = topMatches[0];
-    if (floor_no) {
-      const floorMatch = scored.find((r) => r.floor_no === floor_no);
-      if (!floorMatch) return `No match for "${asset_name}" on floor ${floor_no}.`;
-      target = floorMatch;
-    }
-
+    // Fuzzy match: exact → strip spaces/dashes → partial LIKE (in order of precision)
     const result = await pool.query(
-      "UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *",
-      [normalized, target.id]
+      `UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP
+       WHERE LOWER(asset_name) = LOWER($2)
+          OR LOWER(REPLACE(REPLACE(asset_name, ' ', ''), '-', '')) = LOWER(REPLACE(REPLACE($2, ' ', ''), '-', ''))
+          OR LOWER(asset_name) ILIKE '%' || LOWER($2) || '%'
+       RETURNING *`,
+      [normalized, asset_name]
     );
 
-    if (result.rows.length === 0) return "Asset not found.";
-
-    const updated = result.rows[0];
-    const wasExact = normalizeAssetName(asset_name) === normalizeAssetName(updated.asset_name);
-    const note = wasExact ? "" : ` (matched to "${updated.asset_name}")`;
-
-    // Auto-create a ticket whenever an asset is marked faulty or maintenance
-    let ticketNote = "";
-    if (normalized === "faulty" || normalized === "maintenance") {
-      const existing = await pool.query(
-        "SELECT id FROM maintenance_tickets WHERE LOWER(asset_name) = LOWER($1) AND floor_no = $2 AND status = 'open'",
-        [updated.asset_name, updated.floor_no]
-      );
-      if (existing.rows.length === 0) {
-        const priority = updated.asset_name.toLowerCase().includes("lift") || updated.asset_name.toLowerCase().includes("fire") ? "high" : "medium";
-        const ticket = await pool.query(
-          `INSERT INTO maintenance_tickets (asset_name, floor_no, issue, priority, status, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, 'open', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id`,
-          [updated.asset_name, updated.floor_no, `${updated.asset_name} reported as ${normalized}`, priority]
-        );
-        ticketNote = ` Ticket #${ticket.rows[0].id} created automatically.`;
-      }
+    if (result.rows.length === 0) {
+      return `Asset not found for "${asset_name}". Use get_building_status to see the exact asset names available.`;
     }
 
-    return `Updated ${updated.asset_name} on floor ${updated.floor_no} to ${updated.status}${note}.${ticketNote}`;
+    const updated = result.rows.map((r: any) => r.asset_name).join(", ");
+    return `Updated ${updated} to ${normalized}`;
   },
   {
     name: "update_asset_status",
-    description: "Update the status of a building asset. Valid status values: operational, faulty, maintenance. If the asset exists on multiple floors, floor_no is required.",
+    description: "Update the status of a building asset. Fuzzy matches asset names — spaces, dashes and capitalisation differences are handled automatically.",
     schema: z.object({
-      asset_name: z.string(),
+      asset_name: z.string().describe("Asset name or partial name, e.g. 'Board Room Camera', 'Boardroom camera', 'Meeting Room A Projector'"),
       status: z.string().describe("Use: operational, faulty, or maintenance"),
-      floor_no: z.number().optional().describe("Floor number — required when the asset name exists on multiple floors"),
     }),
   }
 );
 
 export async function POST(req: Request) {
   try {
-    const { message, history = [] } = await req.json();
+    const { message } = await req.json();
 
     const model = new ChatOpenAI({
       model: "gpt-4o-mini",
@@ -190,43 +105,35 @@ export async function POST(req: Request) {
     ]);
 
     const systemPrompt = `
-You are an AI Building Digital Twin Assistant.
+You are an AI Digital Twin Assistant for MN Building.
 
-You help users understand and manage the current state of a building.
+You help users understand the current state of MN Building.
 
-Use the tools when the user:
-- asks about building health or asset status
-- asks about faulty or maintenance assets
-- wants to update an asset (commands like "update X to faulty")
-- reports that an asset IS broken/damaged/faulty/not working (treat these as update requests)
-- asks simulation questions
+Use the tools when the user asks about:
+- building health
+- faulty assets
+- asset status
+- updating an asset
+- simulation questions
 
-When the user says something like "X is broken", "X is not working", "X is damaged", treat it as a request to update that asset's status — call update_asset_status ONCE only.
+When updating asset status, interpret the user's intent and map it to the closest valid value:
+- "operational" → for: working, fixed, ok, good, healthy, online, restored, back to normal
+- "faulty" → for: broken, damaged, fault, failed, not working, offline, error, Damaged, Damandged, or any misspelling suggesting failure
+- "maintenance" → for: warning, repair, under maintenance, needs attention
 
-CRITICAL RULES for update_asset_status:
-- NEVER call update_asset_status more than once per user message.
-- NEVER loop over floors or call the tool multiple times for the same asset.
-- If the tool response says the asset exists on multiple floors, relay that message to the user and wait for them to specify a floor. Do NOT call the tool again.
-- Only call the tool a second time if the user has explicitly provided a floor number in their follow-up message.
-
-When updating asset status, always use one of these exact values: operational, faulty, maintenance.
-Map user words: broken/damaged/fault/failed/error/offline → faulty, working/ok/good/running → operational, warning/repair → maintenance.
+Always call the update_asset_status tool — never reject the user's request. Use your best judgement to map any word to one of the three valid values.
 
 When giving answers:
-- be clear and short
-- confirm what was updated and on which floor
-- if disambiguation is needed, ask the user which floor
+- be clear
+- be short
+- mention which assets need attention
+- give a simple building health score out of 100 if useful
+
+For simulation questions, use the database status first, then explain the likely operational impact.
 `;
-
-
-    const historyMessages = (history as { role: string; content: string }[]).map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
 
     const firstResponse = await model.invoke([
       { role: "system", content: systemPrompt },
-      ...historyMessages,
       { role: "user", content: message },
     ]);
 
@@ -240,30 +147,19 @@ When giving answers:
 
     const toolMessages = [];
 
-    // Allow only one update_asset_status call per request — drop the rest
-    let updateCallSeen = false;
-
     for (const call of toolCalls) {
       let selectedTool;
-      let toolResult: string;
 
       if (call.name === "get_building_status") {
         selectedTool = getBuildingStatusTool;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        toolResult = await (selectedTool as any).invoke(call.args);
       } else if (call.name === "get_faulty_assets") {
         selectedTool = getFaultyAssetsTool;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        toolResult = await (selectedTool as any).invoke(call.args);
       } else {
-        if (updateCallSeen) {
-          toolResult = "Skipped: only one asset update is allowed per message. Ask the user to specify the floor.";
-        } else {
-          updateCallSeen = true;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          toolResult = await (updateAssetStatusTool as any).invoke(call.args);
-        }
+        selectedTool = updateAssetStatusTool;
       }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolResult = await (selectedTool as any).invoke(call.args);
 
       toolMessages.push({
         role: "tool" as const,
@@ -274,7 +170,6 @@ When giving answers:
 
     const finalResponse = await model.invoke([
       { role: "system", content: systemPrompt },
-      ...historyMessages,
       { role: "user", content: message },
       firstResponse,
       ...toolMessages,
