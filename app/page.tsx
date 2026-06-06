@@ -194,16 +194,20 @@ function AssetVisual({ asset }: { asset: Asset }) {
 // ── Asset Detail Modal ────────────────────────────────────────────────────────
 
 function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
-  const statusLabel: Record<string, string> = {
-    operational: "Operational",
-    faulty: "Faulty",
-    maintenance: "Under Maintenance",
-  };
-  const bgRing: Record<string, string> = {
-    operational: "border-emerald-500",
-    faulty: "border-red-500",
-    maintenance: "border-amber-400",
-  };
+  const sk = statusKey(asset.status);
+  const isOkModal = sk === "operational" || sk === "healthy";
+  const isFaultyModal = sk === "faulty" || sk === "damaged" || sk === "fault";
+  const bgRingClass = isOkModal
+    ? "border-emerald-500"
+    : isFaultyModal
+    ? "border-red-500"
+    : "border-amber-400";
+  const badgeClass = isOkModal
+    ? "bg-emerald-900/50 text-emerald-400"
+    : isFaultyModal
+    ? "bg-red-900/50 text-red-400 animate-pulse"
+    : "bg-amber-900/50 text-amber-400";
+  const badgeLabel = isOkModal ? "Operational" : isFaultyModal ? "Faulty" : "Under Maintenance";
 
   return (
     <div
@@ -211,7 +215,7 @@ function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className={`bg-gray-900 border-2 ${bgRing[asset.status] ?? "border-gray-700"} rounded-2xl p-6 w-80 shadow-2xl`}
+        className={`bg-gray-900 border-2 ${bgRingClass} rounded-2xl p-6 w-80 shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -228,14 +232,8 @@ function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
         </div>
 
         {/* Status badge */}
-        <div className={`text-center py-2 rounded-xl text-sm font-bold ${
-          asset.status === "operational"
-            ? "bg-emerald-900/50 text-emerald-400"
-            : asset.status === "faulty"
-            ? "bg-red-900/50 text-red-400 animate-pulse"
-            : "bg-amber-900/50 text-amber-400"
-        }`}>
-          {statusLabel[asset.status] ?? asset.status}
+        <div className={`text-center py-2 rounded-xl text-sm font-bold ${badgeClass}`}>
+          {badgeLabel}
         </div>
 
         <p className="text-gray-600 text-xs text-center mt-3">
@@ -321,15 +319,15 @@ function BuildingPanel({
       {!loading && (
         <div className="px-4 py-3 border-t border-gray-700 grid grid-cols-3 gap-2 text-center">
           <div>
-            <p className="text-emerald-400 font-bold text-lg">{assets.filter((a) => a.status === "operational").length}</p>
+            <p className="text-emerald-400 font-bold text-lg">{assets.filter((a) => { const s = statusKey(a.status); return s === "operational" || s === "healthy"; }).length}</p>
             <p className="text-xs text-gray-500">OK</p>
           </div>
           <div>
-            <p className="text-amber-400 font-bold text-lg">{assets.filter((a) => a.status === "maintenance").length}</p>
+            <p className="text-amber-400 font-bold text-lg">{assets.filter((a) => { const s = statusKey(a.status); return s === "maintenance" || s === "warning"; }).length}</p>
             <p className="text-xs text-gray-500">Maint.</p>
           </div>
           <div>
-            <p className="text-red-400 font-bold text-lg">{assets.filter((a) => a.status === "faulty").length}</p>
+            <p className="text-red-400 font-bold text-lg">{assets.filter((a) => { const s = statusKey(a.status); return s === "faulty" || s === "damaged" || s === "fault"; }).length}</p>
             <p className="text-xs text-gray-500">Faulty</p>
           </div>
         </div>

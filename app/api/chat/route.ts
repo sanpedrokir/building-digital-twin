@@ -41,11 +41,32 @@ const getFaultyAssetsTool = tool(
   }
 );
 
+const STATUS_MAP: Record<string, string> = {
+  operational: "operational",
+  healthy: "operational",
+  ok: "operational",
+  running: "operational",
+  working: "operational",
+  good: "operational",
+  online: "operational",
+  faulty: "faulty",
+  broken: "faulty",
+  damaged: "faulty",
+  fault: "faulty",
+  failed: "faulty",
+  error: "faulty",
+  offline: "faulty",
+  maintenance: "maintenance",
+  warning: "maintenance",
+  repair: "maintenance",
+};
+
 const updateAssetStatusTool = tool(
   async ({ asset_name, status }) => {
+    const normalized = STATUS_MAP[status.toLowerCase().trim()] ?? status.toLowerCase().trim();
     const result = await pool.query(
       "UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE LOWER(asset_name) = LOWER($2) RETURNING *",
-      [status, asset_name]
+      [normalized, asset_name]
     );
 
     if (result.rows.length === 0) {
@@ -56,10 +77,10 @@ const updateAssetStatusTool = tool(
   },
   {
     name: "update_asset_status",
-    description: "Update the status of a building asset",
+    description: "Update the status of a building asset. Valid status values: operational, faulty, maintenance",
     schema: z.object({
       asset_name: z.string(),
-      status: z.string(),
+      status: z.string().describe("Use: operational, faulty, or maintenance"),
     }),
   }
 );
@@ -88,6 +109,8 @@ Use the tools when the user asks about:
 - asset status
 - updating an asset
 - simulation questions
+
+When updating asset status, always use one of these exact values: operational, faulty, maintenance
 
 When giving answers:
 - be clear
