@@ -22,7 +22,7 @@ export async function GET() {
         );
         if (existing.rows.length === 0) {
           await pool.query(
-            "INSERT INTO building_assets (asset_name, asset_type, floor_no, status, last_updated) VALUES ($1, 'lift', $2, 'operational', CURRENT_TIMESTAMP)",
+            "INSERT INTO building_assets (asset_name, floor_no, status, last_updated) VALUES ($1, $2, 'operational', CURRENT_TIMESTAMP)",
             [lift, floor]
           );
           inserted.push(`Floor ${floor} — ${lift}`);

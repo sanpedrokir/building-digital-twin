@@ -79,47 +79,58 @@ function wordSimilarity(a: string, b: string): number {
 }
 
 const updateAssetStatusTool = tool(
-  async ({ asset_name, status }) => {
+  async ({ asset_name, status, floor_no }) => {
     const normalized = STATUS_MAP[status.toLowerCase().trim()] ?? status.toLowerCase().trim();
 
-    // Fetch all assets and find the best fuzzy match
-    const allAssets = await pool.query("SELECT id, asset_name FROM building_assets");
-    let matchedId: number | null = null;
-    let matchedName: string | null = null;
-    let bestScore = 0;
+    // Fetch all assets and find fuzzy matches
+    const allAssets = await pool.query("SELECT id, asset_name, floor_no FROM building_assets");
+    const threshold = 0.4;
 
-    for (const row of allAssets.rows) {
-      const score = wordSimilarity(asset_name, row.asset_name);
-      if (score > bestScore) {
-        bestScore = score;
-        matchedId = row.id;
-        matchedName = row.asset_name;
-      }
+    // Score every asset
+    const scored = allAssets.rows
+      .map((row) => ({ ...row, score: wordSimilarity(asset_name, row.asset_name) }))
+      .filter((row) => row.score >= threshold)
+      .sort((a, b) => b.score - a.score);
+
+    if (scored.length === 0) {
+      return `Asset not found. Could not find a close match for "${asset_name}".`;
     }
 
-    if (matchedId === null || bestScore < 0.4) {
-      return `Asset not found. Could not find a close match for "${asset_name}".`;
+    const topScore = scored[0].score;
+    const topMatches = scored.filter((r) => r.score === topScore);
+
+    // Multiple floors match — require floor_no to disambiguate
+    if (topMatches.length > 1 && !floor_no) {
+      const floors = topMatches.map((r) => r.floor_no).sort((a, b) => a - b).join(", ");
+      return `"${scored[0].asset_name}" exists on multiple floors (${floors}). Please specify a floor number, e.g. "Update Lift B on floor 5 to faulty".`;
+    }
+
+    // Pick by floor if provided, otherwise take the single top match
+    let target = topMatches[0];
+    if (floor_no) {
+      const floorMatch = scored.find((r) => r.floor_no === floor_no);
+      if (!floorMatch) return `No match for "${asset_name}" on floor ${floor_no}.`;
+      target = floorMatch;
     }
 
     const result = await pool.query(
       "UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *",
-      [normalized, matchedId]
+      [normalized, target.id]
     );
 
-    if (result.rows.length === 0) {
-      return "Asset not found.";
-    }
+    if (result.rows.length === 0) return "Asset not found.";
 
-    const wasExact = normalizeAssetName(asset_name) === normalizeAssetName(matchedName ?? "");
+    const wasExact = normalizeAssetName(asset_name) === normalizeAssetName(target.asset_name);
     const note = wasExact ? "" : ` (matched to "${result.rows[0].asset_name}")`;
-    return `Updated ${result.rows[0].asset_name} to ${result.rows[0].status}${note}`;
+    return `Updated ${result.rows[0].asset_name} on floor ${result.rows[0].floor_no} to ${result.rows[0].status}${note}`;
   },
   {
     name: "update_asset_status",
-    description: "Update the status of a building asset. Valid status values: operational, faulty, maintenance",
+    description: "Update the status of a building asset. Valid status values: operational, faulty, maintenance. If the asset exists on multiple floors, floor_no is required.",
     schema: z.object({
       asset_name: z.string(),
       status: z.string().describe("Use: operational, faulty, or maintenance"),
+      floor_no: z.number().optional().describe("Floor number — required when the asset name exists on multiple floors"),
     }),
   }
 );
