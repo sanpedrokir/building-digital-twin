@@ -7,51 +7,12 @@ type Message = {
   content: string;
 };
 
-type AgentStep = {
-  tool: string;
-  label: string;
-  args: Record<string, unknown>;
-  result: string;
-};
-
-type AgentRun = {
-  goal: string;
-  steps: AgentStep[];
-  summary: string;
-};
-
-type Ticket = {
-  id: number;
-  asset_name: string;
-  floor_no: number;
-  issue: string;
-  priority: "low" | "medium" | "high" | "critical";
-  status: "open" | "closed";
-  created_at: string;
-};
-
-type FloorRisk = {
-  floor_no: number;
-  total_assets: number;
-  faulty_count: number;
-  maintenance_count: number;
-  risk_pct: number;
-  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-};
-
 type Asset = {
   id: number;
   asset_name: string;
   floor_no: number;
   status: "operational" | "faulty" | "maintenance";
   last_updated: string;
-};
-
-const RISK_BADGE: Record<string, string> = {
-  LOW: "bg-emerald-900/60 text-emerald-400 border-emerald-700",
-  MEDIUM: "bg-amber-900/60 text-amber-400 border-amber-700",
-  HIGH: "bg-orange-900/60 text-orange-400 border-orange-700",
-  CRITICAL: "bg-red-900/60 text-red-400 border-red-700 animate-pulse",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -311,12 +272,10 @@ function BuildingPanel({
   assets,
   loading,
   onSelectAsset,
-  floorRisks,
 }: {
   assets: Asset[];
   loading: boolean;
   onSelectAsset: (a: Asset) => void;
-  floorRisks: FloorRisk[];
 }) {
   const floors = Array.from(new Set(assets.map((a) => a.floor_no))).sort((a, b) => b - a);
   const total = assets.length;
@@ -342,18 +301,9 @@ function BuildingPanel({
         ) : floors.length === 0 ? (
           <p className="text-gray-500 text-sm text-center mt-8">No asset data found.</p>
         ) : (
-          floors.map((floor) => {
-            const risk = floorRisks.find((r) => r.floor_no === floor);
-            return (
+          floors.map((floor) => (
             <div key={floor}>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Floor {floor}</p>
-                {risk && risk.risk_level !== "LOW" && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${RISK_BADGE[risk.risk_level]}`}>
-                    {risk.risk_level}
-                  </span>
-                )}
-              </div>
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2 tracking-wider">Floor {floor}</p>
               <div className="space-y-1.5">
                 {assets
                   .filter((a) => a.floor_no === floor)
@@ -362,8 +312,7 @@ function BuildingPanel({
                   ))}
               </div>
             </div>
-            );
-          })
+          ))
         )}
       </div>
 
@@ -420,10 +369,9 @@ function ChatPanel({ messages, onSend, loading }: { messages: Message[]; onSend:
             </div>
             <div className="w-full max-w-lg space-y-2">
               {[
-                "Simulate if Lift B fails",
                 "What is the building health score?",
                 "Show me all faulty assets",
-                "Update Elevator 1 to operational",
+                "Which assets need attention?",
               ].map((q) => (
                 <button
                   key={q}
@@ -470,7 +418,7 @@ function ChatPanel({ messages, onSend, loading }: { messages: Message[]; onSend:
           <span className="text-gray-500 text-lg">💬</span>
           <input
             className="flex-1 bg-transparent text-white placeholder-gray-500 focus:outline-none text-sm"
-            placeholder='e.g. "Simulate if Lift B fails" or "Show faulty assets"'
+            placeholder='e.g. "What is the building health score?" or "Show faulty assets"'
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
@@ -491,208 +439,6 @@ function ChatPanel({ messages, onSend, loading }: { messages: Message[]; onSend:
   );
 }
 
-// ── Tickets Panel ────────────────────────────────────────────────────────────
-
-const PRIORITY_STYLE: Record<string, string> = {
-  critical: "bg-red-900/60 text-red-400 border-red-700",
-  high: "bg-orange-900/60 text-orange-400 border-orange-700",
-  medium: "bg-amber-900/60 text-amber-400 border-amber-700",
-  low: "bg-gray-800 text-gray-400 border-gray-600",
-};
-
-function TicketsPanel({ tickets, loading, onClose }: {
-  tickets: Ticket[];
-  loading: boolean;
-  onClose: (id: number) => void;
-}) {
-  const open = tickets.filter((t) => t.status === "open");
-  const closed = tickets.filter((t) => t.status === "closed");
-
-  return (
-    <div className="flex flex-col h-full bg-gray-950">
-      <div className="px-5 py-4 border-b border-gray-700">
-        <h2 className="text-lg font-bold text-white">Maintenance Tickets</h2>
-        <p className="text-xs text-gray-500 mt-0.5">{open.length} open · {closed.length} closed</p>
-      </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {loading && <p className="text-gray-500 text-sm text-center mt-8">Loading tickets…</p>}
-        {!loading && tickets.length === 0 && <p className="text-gray-500 text-sm text-center mt-8">No tickets yet.</p>}
-        {!loading && open.length > 0 && (
-          <>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Open</p>
-            {open.map((t) => (
-              <div key={t.id} className="bg-gray-800 border border-gray-700 rounded-xl p-3 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-white">{t.asset_name}</p>
-                    <p className="text-xs text-gray-400">Floor {t.floor_no} · Ticket #{t.id}</p>
-                  </div>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 uppercase ${PRIORITY_STYLE[t.priority]}`}>
-                    {t.priority}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-300 leading-relaxed">{t.issue}</p>
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-gray-600">{new Date(t.created_at).toLocaleString()}</p>
-                  <button
-                    onClick={() => onClose(t.id)}
-                    className="text-xs px-2 py-1 bg-emerald-800 hover:bg-emerald-700 text-emerald-300 rounded-lg transition-colors"
-                  >
-                    Mark Resolved
-                  </button>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-        {!loading && closed.length > 0 && (
-          <>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-4">Closed</p>
-            {closed.map((t) => (
-              <div key={t.id} className="bg-gray-900 border border-gray-800 rounded-xl p-3 opacity-60">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-400">{t.asset_name} — Floor {t.floor_no}</p>
-                  <span className="text-[10px] text-gray-500">#{t.id}</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-2">{t.issue}</p>
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Agent Panel ───────────────────────────────────────────────────────────────
-
-const TOOL_ICONS: Record<string, string> = {
-  get_building_status: "🏢",
-  get_faulty_assets: "⚠️",
-  get_high_energy_assets: "⚡",
-  create_maintenance_ticket: "🎫",
-  get_open_tickets: "📋",
-  send_email_summary: "📧",
-};
-
-const SUGGESTED_GOALS = [
-  "Assess today's building risk",
-  "Create maintenance tickets for all faulty assets",
-  "Send me a full building status report by email",
-  "What needs urgent attention today?",
-];
-
-function AgentPanel({ runs, onRun, loading }: { runs: AgentRun[]; onRun: (goal: string) => void; loading: boolean }) {
-  const [input, setInput] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [runs, loading]);
-
-  const handleRun = (goal: string) => {
-    if (!goal.trim() || loading) return;
-    setInput("");
-    onRun(goal.trim());
-  };
-
-  return (
-    <div className="flex flex-col h-full bg-gray-950">
-      <div className="px-5 py-4 border-b border-gray-700">
-        <h2 className="text-lg font-bold text-white">Building Maintenance Agent</h2>
-        <p className="text-xs text-gray-500 mt-0.5">Give the agent a goal — it decides the steps</p>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-        {runs.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center h-full gap-6 pb-8">
-            <div className="text-center">
-              <p className="text-gray-300 font-semibold text-base mb-1">What is your goal?</p>
-              <p className="text-gray-500 text-sm">The agent will check status, assess risk, create tickets, and email a report</p>
-            </div>
-            <div className="w-full max-w-lg space-y-2">
-              {SUGGESTED_GOALS.map((g) => (
-                <button key={g} onClick={() => handleRun(g)}
-                  className="block w-full text-left px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors border border-gray-700 hover:border-purple-500">
-                  <span className="text-purple-400 mr-2">→</span>{g}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {runs.map((run, ri) => (
-          <div key={ri} className="space-y-3">
-            <div className="flex justify-end">
-              <div className="bg-purple-600 text-white px-4 py-2.5 rounded-2xl rounded-br-sm text-sm max-w-[80%]">
-                {run.goal}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {run.steps.map((step, si) => (
-                <div key={si} className="bg-gray-800 border border-gray-700 rounded-xl p-3">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-base">{TOOL_ICONS[step.tool] ?? "🔧"}</span>
-                    <span className="text-xs font-semibold text-purple-400 uppercase tracking-wide">{step.label}</span>
-                  </div>
-                  {Object.keys(step.args).length > 0 && (
-                    <p className="text-xs text-gray-500 mb-1.5 font-mono">
-                      {Object.entries(step.args).map(([k, v]) => `${k}: ${v}`).join(" · ")}
-                    </p>
-                  )}
-                  <p className="text-xs text-gray-300 leading-relaxed line-clamp-3">
-                    {step.result.length > 200 ? step.result.slice(0, 200) + "…" : step.result}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-gray-800 border border-purple-700 rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
-              {run.summary}
-            </div>
-          </div>
-        ))}
-
-        {loading && (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-3 animate-pulse">
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 bg-gray-700 rounded" />
-                  <div className="h-3 bg-gray-700 rounded w-32" />
-                </div>
-              </div>
-            ))}
-            <p className="text-xs text-gray-500 text-center">Agent is working…</p>
-          </div>
-        )}
-
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="px-5 py-4 border-t border-gray-700 bg-gray-900">
-        <div className="flex gap-3 items-center bg-gray-800 border-2 border-gray-600 focus-within:border-purple-500 rounded-2xl px-4 py-3 transition-colors">
-          <span className="text-gray-500 text-lg">🤖</span>
-          <input
-            className="flex-1 bg-transparent text-white placeholder-gray-500 focus:outline-none text-sm"
-            placeholder='e.g. "Assess today&apos;s building risk"'
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleRun(input)}
-            disabled={loading}
-            autoFocus
-          />
-          <button onClick={() => handleRun(input)} disabled={loading || !input.trim()}
-            className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors shrink-0">
-            {loading ? "…" : "Run"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -701,12 +447,7 @@ export default function Home() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [activeTab, setActiveTab] = useState<"building" | "chat" | "agent" | "tickets">("chat");
-  const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
-  const [agentLoading, setAgentLoading] = useState(false);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [ticketsLoading, setTicketsLoading] = useState(false);
-  const [floorRisks, setFloorRisks] = useState<FloorRisk[]>([]);
+  const [activeTab, setActiveTab] = useState<"building" | "chat">("chat");
 
   const fetchAssets = async () => {
     try {
@@ -720,44 +461,8 @@ export default function Home() {
     }
   };
 
-  const fetchTickets = async () => {
-    setTicketsLoading(true);
-    try {
-      const res = await fetch("/api/tickets");
-      const data = await res.json();
-      if (Array.isArray(data)) setTickets(data);
-    } catch {
-      // silently fail
-    } finally {
-      setTicketsLoading(false);
-    }
-  };
-
-  const fetchFloorRisks = async () => {
-    try {
-      const res = await fetch("/api/risk-scores");
-      const data = await res.json();
-      if (Array.isArray(data)) setFloorRisks(data);
-    } catch {
-      // silently fail
-    }
-  };
-
-  const handleCloseTicket = async (id: number) => {
-    await fetch("/api/tickets", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status: "closed", resolution: "Resolved by facility manager" }),
-    });
-    fetchTickets();
-    fetchAssets();
-    fetchFloorRisks();
-  };
-
   useEffect(() => {
     fetchAssets();
-    fetchTickets();
-    fetchFloorRisks();
   }, []);
 
   // Refresh asset panel if a selected asset's status changed
@@ -769,14 +474,13 @@ export default function Home() {
   }, [assets]);
 
   const handleSend = async (message: string) => {
-    const history = messages;
     setMessages((prev) => [...prev, { role: "user", content: message }]);
     setChatLoading(true);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, history }),
+        body: JSON.stringify({ message }),
       });
       const data = await res.json();
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
@@ -791,90 +495,53 @@ export default function Home() {
     }
   };
 
-  const handleAgentRun = async (goal: string) => {
-    setAgentLoading(true);
-    try {
-      const res = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal }),
-      });
-      const data = await res.json();
-      setAgentRuns((prev) => [...prev, { goal, steps: data.steps ?? [], summary: data.summary ?? "" }]);
-      fetchAssets();
-      fetchTickets();
-      fetchFloorRisks();
-    } catch {
-      setAgentRuns((prev) => [...prev, { goal, steps: [], summary: "Failed to reach the agent. Please try again." }]);
-    } finally {
-      setAgentLoading(false);
-    }
-  };
-
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
       <header className="flex items-center gap-3 px-4 md:px-6 py-3 border-b border-gray-700 bg-gray-900 shrink-0">
         <div className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
-        <h1 className="text-base font-bold tracking-tight">Digital Twin of MN Building</h1>
-        <span className="hidden sm:inline ml-2 text-xs text-gray-500">Click any asset to see its live visual</span>
-        <div className="hidden md:flex ml-auto gap-2">
-          <button onClick={() => setActiveTab("chat")}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${activeTab === "chat" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}>
-            💬 AI Chat
-          </button>
-          <button onClick={() => { setActiveTab("tickets"); fetchTickets(); }}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${activeTab === "tickets" ? "bg-amber-600 text-white" : "text-gray-400 hover:text-white"}`}>
-            🎫 Tickets
-            {tickets.filter(t => t.status === "open").length > 0 && (
-              <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
-                {tickets.filter(t => t.status === "open").length}
-              </span>
-            )}
-          </button>
-          <button onClick={() => setActiveTab("agent")}
-            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors border ${activeTab === "agent" ? "bg-purple-600 text-white border-purple-500" : "text-purple-300 border-purple-700 hover:bg-purple-700 hover:text-white"}`}>
-            🤖 Maintenance Agent
-          </button>
+        <div className="flex flex-col leading-tight">
+          <h1 className="text-base font-bold tracking-tight">Digital Twin of MN Building</h1>
+          <span className="text-[10px] text-gray-400 tracking-wide">Agentic AI</span>
         </div>
+        <span className="hidden sm:inline ml-2 text-xs text-gray-500">Click any asset to see its live visual</span>
+        <span className="hidden sm:inline ml-auto text-xs text-gray-500">Digital Twin of MN Building - Agentic</span>
       </header>
 
       {/* Desktop: side-by-side | Mobile: single panel, toggled by tab bar */}
       <div className="flex flex-1 overflow-hidden">
-        <div className={`w-full md:w-72 md:shrink-0 overflow-hidden ${activeTab === "building" ? "flex" : "hidden"} md:flex flex-col`}>
-          <BuildingPanel assets={assets} loading={assetsLoading} floorRisks={floorRisks} onSelectAsset={(a) => { setSelectedAsset(a); setActiveTab("chat"); }} />
+        <div className={`
+          w-full md:w-72 md:shrink-0 overflow-hidden
+          ${activeTab === "building" ? "flex" : "hidden"} md:flex flex-col
+        `}>
+          <BuildingPanel assets={assets} loading={assetsLoading} onSelectAsset={(a) => { setSelectedAsset(a); setActiveTab("chat"); }} />
         </div>
-        <div className={`flex-1 overflow-hidden min-w-0 ${activeTab === "chat" ? "flex" : "hidden"} ${["agent","tickets"].includes(activeTab) ? "hidden" : "md:flex"} flex-col`}>
+        <div className={`
+          flex-1 overflow-hidden min-w-0
+          ${activeTab === "chat" ? "flex" : "hidden"} md:flex flex-col
+        `}>
           <ChatPanel messages={messages} onSend={handleSend} loading={chatLoading} />
-        </div>
-        <div className={`flex-1 overflow-hidden min-w-0 ${activeTab === "tickets" ? "flex" : "hidden"} ${activeTab !== "tickets" ? "md:hidden" : "md:flex"} flex-col`}>
-          <TicketsPanel tickets={tickets} loading={ticketsLoading} onClose={handleCloseTicket} />
-        </div>
-        <div className={`flex-1 overflow-hidden min-w-0 ${activeTab === "agent" ? "flex" : "hidden"} ${activeTab !== "agent" ? "md:hidden" : "md:flex"} flex-col`}>
-          <AgentPanel runs={agentRuns} onRun={handleAgentRun} loading={agentLoading} />
         </div>
       </div>
 
       {/* Mobile tab bar */}
       <nav className="md:hidden flex shrink-0 border-t border-gray-700 bg-gray-900">
-        <button onClick={() => setActiveTab("building")}
-          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${activeTab === "building" ? "text-blue-400 border-t-2 border-blue-400 -mt-px" : "text-gray-500"}`}>
+        <button
+          onClick={() => setActiveTab("building")}
+          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${
+            activeTab === "building" ? "text-blue-400 border-t-2 border-blue-400 -mt-px" : "text-gray-500"
+          }`}
+        >
           <span className="text-base leading-none">🏢</span>
           Building
         </button>
-        <button onClick={() => setActiveTab("chat")}
-          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${activeTab === "chat" ? "text-blue-400 border-t-2 border-blue-400 -mt-px" : "text-gray-500"}`}>
+        <button
+          onClick={() => setActiveTab("chat")}
+          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${
+            activeTab === "chat" ? "text-blue-400 border-t-2 border-blue-400 -mt-px" : "text-gray-500"
+          }`}
+        >
           <span className="text-base leading-none">💬</span>
           AI Chat
-        </button>
-        <button onClick={() => { setActiveTab("tickets"); fetchTickets(); }}
-          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${activeTab === "tickets" ? "text-amber-400 border-t-2 border-amber-400 -mt-px" : "text-gray-500"}`}>
-          <span className="text-base leading-none">🎫</span>
-          Tickets
-        </button>
-        <button onClick={() => setActiveTab("agent")}
-          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-sm font-bold transition-colors ${activeTab === "agent" ? "text-purple-400 border-t-2 border-purple-400 -mt-px" : "text-purple-500"}`}>
-          <span className="text-xl leading-none">🤖</span>
-          Agent
         </button>
       </nav>
 
