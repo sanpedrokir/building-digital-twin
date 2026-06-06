@@ -20,12 +20,38 @@ type AgentRun = {
   summary: string;
 };
 
+type Ticket = {
+  id: number;
+  asset_name: string;
+  floor_no: number;
+  issue: string;
+  priority: "low" | "medium" | "high" | "critical";
+  status: "open" | "closed";
+  created_at: string;
+};
+
+type FloorRisk = {
+  floor_no: number;
+  total_assets: number;
+  faulty_count: number;
+  maintenance_count: number;
+  risk_pct: number;
+  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+};
+
 type Asset = {
   id: number;
   asset_name: string;
   floor_no: number;
   status: "operational" | "faulty" | "maintenance";
   last_updated: string;
+};
+
+const RISK_BADGE: Record<string, string> = {
+  LOW: "bg-emerald-900/60 text-emerald-400 border-emerald-700",
+  MEDIUM: "bg-amber-900/60 text-amber-400 border-amber-700",
+  HIGH: "bg-orange-900/60 text-orange-400 border-orange-700",
+  CRITICAL: "bg-red-900/60 text-red-400 border-red-700 animate-pulse",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -285,10 +311,12 @@ function BuildingPanel({
   assets,
   loading,
   onSelectAsset,
+  floorRisks,
 }: {
   assets: Asset[];
   loading: boolean;
   onSelectAsset: (a: Asset) => void;
+  floorRisks: FloorRisk[];
 }) {
   const floors = Array.from(new Set(assets.map((a) => a.floor_no))).sort((a, b) => b - a);
   const total = assets.length;
@@ -314,9 +342,18 @@ function BuildingPanel({
         ) : floors.length === 0 ? (
           <p className="text-gray-500 text-sm text-center mt-8">No asset data found.</p>
         ) : (
-          floors.map((floor) => (
+          floors.map((floor) => {
+            const risk = floorRisks.find((r) => r.floor_no === floor);
+            return (
             <div key={floor}>
-              <p className="text-xs font-semibold text-gray-500 uppercase mb-2 tracking-wider">Floor {floor}</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Floor {floor}</p>
+                {risk && risk.risk_level !== "LOW" && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${RISK_BADGE[risk.risk_level]}`}>
+                    {risk.risk_level}
+                  </span>
+                )}
+              </div>
               <div className="space-y-1.5">
                 {assets
                   .filter((a) => a.floor_no === floor)
@@ -325,7 +362,8 @@ function BuildingPanel({
                   ))}
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -448,6 +486,79 @@ function ChatPanel({ messages, onSend, loading }: { messages: Message[]; onSend:
           </button>
         </div>
         <p className="text-xs text-gray-600 mt-2 text-center">Press Enter or click Send</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Tickets Panel ────────────────────────────────────────────────────────────
+
+const PRIORITY_STYLE: Record<string, string> = {
+  critical: "bg-red-900/60 text-red-400 border-red-700",
+  high: "bg-orange-900/60 text-orange-400 border-orange-700",
+  medium: "bg-amber-900/60 text-amber-400 border-amber-700",
+  low: "bg-gray-800 text-gray-400 border-gray-600",
+};
+
+function TicketsPanel({ tickets, loading, onClose }: {
+  tickets: Ticket[];
+  loading: boolean;
+  onClose: (id: number) => void;
+}) {
+  const open = tickets.filter((t) => t.status === "open");
+  const closed = tickets.filter((t) => t.status === "closed");
+
+  return (
+    <div className="flex flex-col h-full bg-gray-950">
+      <div className="px-5 py-4 border-b border-gray-700">
+        <h2 className="text-lg font-bold text-white">Maintenance Tickets</h2>
+        <p className="text-xs text-gray-500 mt-0.5">{open.length} open · {closed.length} closed</p>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {loading && <p className="text-gray-500 text-sm text-center mt-8">Loading tickets…</p>}
+        {!loading && tickets.length === 0 && <p className="text-gray-500 text-sm text-center mt-8">No tickets yet.</p>}
+        {!loading && open.length > 0 && (
+          <>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Open</p>
+            {open.map((t) => (
+              <div key={t.id} className="bg-gray-800 border border-gray-700 rounded-xl p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{t.asset_name}</p>
+                    <p className="text-xs text-gray-400">Floor {t.floor_no} · Ticket #{t.id}</p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 uppercase ${PRIORITY_STYLE[t.priority]}`}>
+                    {t.priority}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-300 leading-relaxed">{t.issue}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-gray-600">{new Date(t.created_at).toLocaleString()}</p>
+                  <button
+                    onClick={() => onClose(t.id)}
+                    className="text-xs px-2 py-1 bg-emerald-800 hover:bg-emerald-700 text-emerald-300 rounded-lg transition-colors"
+                  >
+                    Mark Resolved
+                  </button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+        {!loading && closed.length > 0 && (
+          <>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-4">Closed</p>
+            {closed.map((t) => (
+              <div key={t.id} className="bg-gray-900 border border-gray-800 rounded-xl p-3 opacity-60">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-400">{t.asset_name} — Floor {t.floor_no}</p>
+                  <span className="text-[10px] text-gray-500">#{t.id}</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-2">{t.issue}</p>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );
@@ -590,9 +701,12 @@ export default function Home() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [activeTab, setActiveTab] = useState<"building" | "chat" | "agent">("chat");
+  const [activeTab, setActiveTab] = useState<"building" | "chat" | "agent" | "tickets">("chat");
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const [agentLoading, setAgentLoading] = useState(false);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [floorRisks, setFloorRisks] = useState<FloorRisk[]>([]);
 
   const fetchAssets = async () => {
     try {
@@ -606,8 +720,42 @@ export default function Home() {
     }
   };
 
+  const fetchTickets = async () => {
+    setTicketsLoading(true);
+    try {
+      const res = await fetch("/api/tickets");
+      const data = await res.json();
+      if (Array.isArray(data)) setTickets(data);
+    } catch {
+      // silently fail
+    } finally {
+      setTicketsLoading(false);
+    }
+  };
+
+  const fetchFloorRisks = async () => {
+    try {
+      const res = await fetch("/api/risk-scores");
+      const data = await res.json();
+      if (Array.isArray(data)) setFloorRisks(data);
+    } catch {
+      // silently fail
+    }
+  };
+
+  const handleCloseTicket = async (id: number) => {
+    await fetch("/api/tickets", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status: "closed", resolution: "Resolved by facility manager" }),
+    });
+    fetchTickets();
+  };
+
   useEffect(() => {
     fetchAssets();
+    fetchTickets();
+    fetchFloorRisks();
   }, []);
 
   // Refresh asset panel if a selected asset's status changed
@@ -652,6 +800,8 @@ export default function Home() {
       const data = await res.json();
       setAgentRuns((prev) => [...prev, { goal, steps: data.steps ?? [], summary: data.summary ?? "" }]);
       fetchAssets();
+      fetchTickets();
+      fetchFloorRisks();
     } catch {
       setAgentRuns((prev) => [...prev, { goal, steps: [], summary: "Failed to reach the agent. Please try again." }]);
     } finally {
@@ -670,6 +820,15 @@ export default function Home() {
             className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${activeTab === "chat" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}>
             💬 AI Chat
           </button>
+          <button onClick={() => { setActiveTab("tickets"); fetchTickets(); }}
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${activeTab === "tickets" ? "bg-amber-600 text-white" : "text-gray-400 hover:text-white"}`}>
+            🎫 Tickets
+            {tickets.filter(t => t.status === "open").length > 0 && (
+              <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
+                {tickets.filter(t => t.status === "open").length}
+              </span>
+            )}
+          </button>
           <button onClick={() => setActiveTab("agent")}
             className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${activeTab === "agent" ? "bg-purple-600 text-white" : "text-gray-400 hover:text-white"}`}>
             🤖 Agent
@@ -679,23 +838,16 @@ export default function Home() {
 
       {/* Desktop: side-by-side | Mobile: single panel, toggled by tab bar */}
       <div className="flex flex-1 overflow-hidden">
-        <div className={`
-          w-full md:w-72 md:shrink-0 overflow-hidden
-          ${activeTab === "building" ? "flex" : "hidden"} md:flex flex-col
-        `}>
-          <BuildingPanel assets={assets} loading={assetsLoading} onSelectAsset={(a) => { setSelectedAsset(a); setActiveTab("chat"); }} />
+        <div className={`w-full md:w-72 md:shrink-0 overflow-hidden ${activeTab === "building" ? "flex" : "hidden"} md:flex flex-col`}>
+          <BuildingPanel assets={assets} loading={assetsLoading} floorRisks={floorRisks} onSelectAsset={(a) => { setSelectedAsset(a); setActiveTab("chat"); }} />
         </div>
-        <div className={`
-          flex-1 overflow-hidden min-w-0
-          ${activeTab === "chat" ? "flex" : "hidden"} ${activeTab === "agent" ? "hidden" : "md:flex"} flex-col
-        `}>
+        <div className={`flex-1 overflow-hidden min-w-0 ${activeTab === "chat" ? "flex" : "hidden"} ${["agent","tickets"].includes(activeTab) ? "hidden" : "md:flex"} flex-col`}>
           <ChatPanel messages={messages} onSend={handleSend} loading={chatLoading} />
         </div>
-        <div className={`
-          flex-1 overflow-hidden min-w-0
-          ${activeTab === "agent" ? "flex" : "hidden"} md:flex flex-col
-          ${activeTab !== "agent" ? "md:hidden" : ""}
-        `}>
+        <div className={`flex-1 overflow-hidden min-w-0 ${activeTab === "tickets" ? "flex" : "hidden"} ${activeTab !== "tickets" ? "md:hidden" : "md:flex"} flex-col`}>
+          <TicketsPanel tickets={tickets} loading={ticketsLoading} onClose={handleCloseTicket} />
+        </div>
+        <div className={`flex-1 overflow-hidden min-w-0 ${activeTab === "agent" ? "flex" : "hidden"} ${activeTab !== "agent" ? "md:hidden" : "md:flex"} flex-col`}>
           <AgentPanel runs={agentRuns} onRun={handleAgentRun} loading={agentLoading} />
         </div>
       </div>
@@ -711,6 +863,11 @@ export default function Home() {
           className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${activeTab === "chat" ? "text-blue-400 border-t-2 border-blue-400 -mt-px" : "text-gray-500"}`}>
           <span className="text-base leading-none">💬</span>
           AI Chat
+        </button>
+        <button onClick={() => { setActiveTab("tickets"); fetchTickets(); }}
+          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${activeTab === "tickets" ? "text-amber-400 border-t-2 border-amber-400 -mt-px" : "text-gray-500"}`}>
+          <span className="text-base leading-none">🎫</span>
+          Tickets
         </button>
         <button onClick={() => setActiveTab("agent")}
           className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${activeTab === "agent" ? "text-purple-400 border-t-2 border-purple-400 -mt-px" : "text-gray-500"}`}>
