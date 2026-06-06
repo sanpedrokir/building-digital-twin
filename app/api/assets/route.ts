@@ -11,6 +11,9 @@ export async function GET() {
     return NextResponse.json(result.rows);
   } catch (error) {
     console.error("Assets fetch error:", error);
-    return NextResponse.json([], { status: 500 });
+    return NextResponse.json(
+      { error: String(error), message: error instanceof Error ? error.message : "unknown" },
+      { status: 500 }
+    );
   }
 }
