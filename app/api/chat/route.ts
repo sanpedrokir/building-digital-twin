@@ -108,7 +108,7 @@ const updateAssetStatusTool = tool(
     const threshold = 0.4;
 
     // Score every asset
-    const scored = allAssets.rows
+    const scored = (allAssets.rows as { id: number; asset_name: string; floor_no: number }[])
       .map((row) => ({ ...row, score: wordSimilarity(asset_name, row.asset_name) }))
       .filter((row) => row.score >= threshold)
       .sort((a, b) => b.score - a.score);
