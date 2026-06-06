@@ -141,9 +141,29 @@ const updateAssetStatusTool = tool(
 
     if (result.rows.length === 0) return "Asset not found.";
 
-    const wasExact = normalizeAssetName(asset_name) === normalizeAssetName(target.asset_name);
-    const note = wasExact ? "" : ` (matched to "${result.rows[0].asset_name}")`;
-    return `Updated ${result.rows[0].asset_name} on floor ${result.rows[0].floor_no} to ${result.rows[0].status}${note}`;
+    const updated = result.rows[0];
+    const wasExact = normalizeAssetName(asset_name) === normalizeAssetName(updated.asset_name);
+    const note = wasExact ? "" : ` (matched to "${updated.asset_name}")`;
+
+    // Auto-create a ticket whenever an asset is marked faulty or maintenance
+    let ticketNote = "";
+    if (normalized === "faulty" || normalized === "maintenance") {
+      const existing = await pool.query(
+        "SELECT id FROM maintenance_tickets WHERE LOWER(asset_name) = LOWER($1) AND floor_no = $2 AND status = 'open'",
+        [updated.asset_name, updated.floor_no]
+      );
+      if (existing.rows.length === 0) {
+        const priority = updated.asset_name.toLowerCase().includes("lift") || updated.asset_name.toLowerCase().includes("fire") ? "high" : "medium";
+        const ticket = await pool.query(
+          `INSERT INTO maintenance_tickets (asset_name, floor_no, issue, priority, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, 'open', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id`,
+          [updated.asset_name, updated.floor_no, `${updated.asset_name} reported as ${normalized}`, priority]
+        );
+        ticketNote = ` Ticket #${ticket.rows[0].id} created automatically.`;
+      }
+    }
+
+    return `Updated ${updated.asset_name} on floor ${updated.floor_no} to ${updated.status}${note}.${ticketNote}`;
   },
   {
     name: "update_asset_status",
