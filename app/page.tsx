@@ -215,7 +215,7 @@ function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className={`bg-gray-900 border-2 ${bgRingClass} rounded-2xl p-6 w-80 shadow-2xl`}
+        className={`bg-gray-900 border-2 ${bgRingClass} rounded-2xl p-5 md:p-6 w-[calc(100vw-2rem)] max-w-xs shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -448,6 +448,7 @@ export default function Home() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [activeTab, setActiveTab] = useState<"building" | "chat">("chat");
 
   const fetchAssets = async () => {
     try {
@@ -497,21 +498,50 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
-      <header className="flex items-center gap-3 px-6 py-3 border-b border-gray-700 bg-gray-900 shrink-0">
-        <div className="w-3 h-3 rounded-full bg-blue-500" />
+      <header className="flex items-center gap-3 px-4 md:px-6 py-3 border-b border-gray-700 bg-gray-900 shrink-0">
+        <div className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
         <h1 className="text-base font-bold tracking-tight">Building Digital Twin</h1>
-        <span className="ml-2 text-xs text-gray-500">Click any asset to see its live visual</span>
-        <span className="ml-auto text-xs text-gray-500">AI-Powered Facility Monitor</span>
+        <span className="hidden sm:inline ml-2 text-xs text-gray-500">Click any asset to see its live visual</span>
+        <span className="hidden sm:inline ml-auto text-xs text-gray-500">AI-Powered Facility Monitor</span>
       </header>
 
+      {/* Desktop: side-by-side | Mobile: single panel, toggled by tab bar */}
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-72 shrink-0 overflow-hidden">
-          <BuildingPanel assets={assets} loading={assetsLoading} onSelectAsset={setSelectedAsset} />
+        <div className={`
+          w-full md:w-72 md:shrink-0 overflow-hidden
+          ${activeTab === "building" ? "flex" : "hidden"} md:flex flex-col
+        `}>
+          <BuildingPanel assets={assets} loading={assetsLoading} onSelectAsset={(a) => { setSelectedAsset(a); setActiveTab("chat"); }} />
         </div>
-        <div className="flex-1 overflow-hidden">
+        <div className={`
+          flex-1 overflow-hidden min-w-0
+          ${activeTab === "chat" ? "flex" : "hidden"} md:flex flex-col
+        `}>
           <ChatPanel messages={messages} onSend={handleSend} loading={chatLoading} />
         </div>
       </div>
+
+      {/* Mobile tab bar */}
+      <nav className="md:hidden flex shrink-0 border-t border-gray-700 bg-gray-900">
+        <button
+          onClick={() => setActiveTab("building")}
+          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${
+            activeTab === "building" ? "text-blue-400 border-t-2 border-blue-400 -mt-px" : "text-gray-500"
+          }`}
+        >
+          <span className="text-base leading-none">🏢</span>
+          Building
+        </button>
+        <button
+          onClick={() => setActiveTab("chat")}
+          className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs font-medium transition-colors ${
+            activeTab === "chat" ? "text-blue-400 border-t-2 border-blue-400 -mt-px" : "text-gray-500"
+          }`}
+        >
+          <span className="text-base leading-none">💬</span>
+          AI Chat
+        </button>
+      </nav>
 
       {selectedAsset && (
         <AssetModal asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
