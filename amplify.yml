@@ -3,6 +3,16 @@ frontend:
   phases:
     preBuild:
       commands:
+        - |
+          cat > .env.production << EOF
+          DATABASE_URL=$DATABASE_URL
+          OPENAI_API_KEY=$OPENAI_API_KEY
+          LANGSMITH_API_KEY=$LANGSMITH_API_KEY
+          LANGSMITH_TRACING=$LANGSMITH_TRACING
+          LANGSMITH_PROJECT=$LANGSMITH_PROJECT
+          LANGSMITH_ENDPOINT=$LANGSMITH_ENDPOINT
+          NODE_TLS_REJECT_UNAUTHORIZED=0
+          EOF
         - npm ci
     build:
       commands:
