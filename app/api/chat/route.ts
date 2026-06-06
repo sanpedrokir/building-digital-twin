@@ -214,19 +214,30 @@ When giving answers:
 
     const toolMessages = [];
 
+    // Allow only one update_asset_status call per request — drop the rest
+    let updateCallSeen = false;
+
     for (const call of toolCalls) {
       let selectedTool;
+      let toolResult: string;
 
       if (call.name === "get_building_status") {
         selectedTool = getBuildingStatusTool;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        toolResult = await (selectedTool as any).invoke(call.args);
       } else if (call.name === "get_faulty_assets") {
         selectedTool = getFaultyAssetsTool;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        toolResult = await (selectedTool as any).invoke(call.args);
       } else {
-        selectedTool = updateAssetStatusTool;
+        if (updateCallSeen) {
+          toolResult = "Skipped: only one asset update is allowed per message. Ask the user to specify the floor.";
+        } else {
+          updateCallSeen = true;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          toolResult = await (updateAssetStatusTool as any).invoke(call.args);
+        }
       }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const toolResult = await (selectedTool as any).invoke(call.args);
 
       toolMessages.push({
         role: "tool" as const,
