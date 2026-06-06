@@ -17,22 +17,34 @@ type Asset = {
 
 const STATUS_COLOR: Record<string, string> = {
   operational: "bg-emerald-500",
+  healthy: "bg-emerald-500",
   faulty: "bg-red-500",
+  damaged: "bg-red-500",
+  fault: "bg-red-500",
   maintenance: "bg-amber-400",
+  warning: "bg-amber-400",
 };
 
 const STATUS_TEXT: Record<string, string> = {
   operational: "text-emerald-400",
+  healthy: "text-emerald-400",
   faulty: "text-red-400",
+  damaged: "text-red-400",
+  fault: "text-red-400",
   maintenance: "text-amber-400",
+  warning: "text-amber-400",
 };
+
+// Normalise status to lowercase for all lookups
+function statusKey(s: string) { return s?.toLowerCase() ?? ""; }
 
 // ── SVG Illustrations ────────────────────────────────────────────────────────
 
 function LiftSVG({ status }: { status: string }) {
-  const isOk = status === "operational";
-  const isFaulty = status === "faulty";
-  const isMaint = status === "maintenance";
+  const s = statusKey(status);
+  const isOk = s === "operational" || s === "healthy";
+  const isFaulty = s === "faulty" || s === "damaged" || s === "fault";
+  const isMaint = s === "maintenance" || s === "warning";
 
   const shaftColor = isOk ? "#1e3a2f" : isFaulty ? "#3a1e1e" : "#3a311e";
   const cabinColor = isOk ? "#22c55e" : isFaulty ? "#ef4444" : "#f59e0b";
@@ -112,8 +124,8 @@ function LiftSVG({ status }: { status: string }) {
 }
 
 function HvacSVG({ status }: { status: string }) {
-  const isOk = status === "operational";
-  const isFaulty = status === "faulty";
+  const isOk = statusKey(status) === "operational" || statusKey(status) === "healthy";
+  const isFaulty = statusKey(status) === "faulty" || statusKey(status) === "damaged";
   const color = isOk ? "#22c55e" : isFaulty ? "#ef4444" : "#f59e0b";
   const fanSpeed = isOk ? "0.6s" : isMaint(status) ? "2s" : "0s";
 
@@ -243,11 +255,11 @@ function AssetCard({ asset, onClick }: { asset: Asset; onClick: () => void }) {
       className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 hover:border-blue-500 hover:bg-gray-750 transition-colors text-left"
     >
       <div className="flex items-center gap-2">
-        <span className={`inline-block w-2.5 h-2.5 rounded-full ${STATUS_COLOR[asset.status] ?? "bg-gray-500"}`} />
+        <span className={`inline-block w-2.5 h-2.5 rounded-full ${STATUS_COLOR[statusKey(asset.status)] ?? "bg-gray-500"}`} />
         <span className="text-sm text-gray-200">{asset.asset_name}</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className={`text-xs font-semibold capitalize ${STATUS_TEXT[asset.status] ?? "text-gray-400"}`}>
+        <span className={`text-xs font-semibold capitalize ${STATUS_TEXT[statusKey(asset.status)] ?? "text-gray-400"}`}>
           {asset.status}
         </span>
         <span className="text-gray-600 text-xs">👁</span>
@@ -269,7 +281,7 @@ function BuildingPanel({
 }) {
   const floors = Array.from(new Set(assets.map((a) => a.floor_no))).sort((a, b) => b - a);
   const total = assets.length;
-  const operational = assets.filter((a) => a.status === "operational").length;
+  const operational = assets.filter((a) => statusKey(a.status) === "operational" || statusKey(a.status) === "healthy").length;
   const healthScore = total > 0 ? Math.round((operational / total) * 100) : 100;
   const scoreColor = healthScore >= 80 ? "text-emerald-400" : healthScore >= 50 ? "text-amber-400" : "text-red-400";
 
