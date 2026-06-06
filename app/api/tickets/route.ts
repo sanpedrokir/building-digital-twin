@@ -6,7 +6,7 @@ import { pool } from "../../lib/db";
 export async function GET() {
   try {
     const result = await pool.query(
-      "SELECT * FROM maintenance_tickets ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, created_at DESC"
+      "SELECT * FROM maintenance_tickets ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, created_at ASC"
     );
     return NextResponse.json(result.rows);
   } catch (error) {
