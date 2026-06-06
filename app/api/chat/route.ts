@@ -181,17 +181,21 @@ Use the tools when the user:
 - reports that an asset IS broken/damaged/faulty/not working (treat these as update requests)
 - asks simulation questions
 
-When the user says something like "X is broken", "X is not working", "X is damaged", treat it as a request to update that asset's status — call update_asset_status.
+When the user says something like "X is broken", "X is not working", "X is damaged", treat it as a request to update that asset's status — call update_asset_status ONCE only.
+
+CRITICAL RULES for update_asset_status:
+- NEVER call update_asset_status more than once per user message.
+- NEVER loop over floors or call the tool multiple times for the same asset.
+- If the tool response says the asset exists on multiple floors, relay that message to the user and wait for them to specify a floor. Do NOT call the tool again.
+- Only call the tool a second time if the user has explicitly provided a floor number in their follow-up message.
 
 When updating asset status, always use one of these exact values: operational, faulty, maintenance.
 Map user words: broken/damaged/fault/failed/error/offline → faulty, working/ok/good/running → operational, warning/repair → maintenance.
 
-If the asset name exists on multiple floors, ask the user to specify the floor number.
-
 When giving answers:
 - be clear and short
 - confirm what was updated and on which floor
-- mention assets that need attention
+- if disambiguation is needed, ask the user which floor
 `;
 
 
