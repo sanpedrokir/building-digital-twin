@@ -7,8 +7,21 @@ import { z } from "zod";
 import { pool } from "../../lib/db";
 import { Resend } from "resend";
 
+export const MANAGER_EMAIL = "sanpedrobeach9@gmail.com";
+
 const resend = new Resend(process.env.RESEND_API_KEY);
-const MANAGER_EMAIL = "sanpedrobeach9@gmail.com";
+
+// ── Status helpers ────────────────────────────────────────────────────────────
+
+const STATUS_MAP: Record<string, string> = {
+  operational: "operational", healthy: "operational", ok: "operational",
+  working: "operational", good: "operational", online: "operational",
+  faulty: "faulty", broken: "faulty", damaged: "faulty", fault: "faulty",
+  failed: "faulty", error: "faulty", offline: "faulty",
+  maintenance: "maintenance", warning: "maintenance", repair: "maintenance",
+};
+
+// ── Tools ─────────────────────────────────────────────────────────────────────
 
 const getBuildingStatusTool = tool(
   async () => {
@@ -29,7 +42,7 @@ const getFaultyAssetsTool = tool(
     const result = await pool.query(
       "SELECT asset_name, floor_no, status, last_updated FROM building_assets WHERE status IN ('faulty', 'maintenance') ORDER BY floor_no"
     );
-    if (result.rows.length === 0) return "No faulty or maintenance assets found. Building is fully operational.";
+    if (result.rows.length === 0) return "No faulty or maintenance assets. Building fully operational.";
     return JSON.stringify(result.rows);
   },
   {
@@ -44,7 +57,7 @@ const getHighEnergyAssetsTool = tool(
     const result = await pool.query(
       "SELECT asset_name, floor_no, energy_usage FROM building_assets WHERE energy_usage IS NOT NULL ORDER BY energy_usage DESC LIMIT 10"
     );
-    if (result.rows.length === 0) return "No energy usage data available yet. Energy monitoring not yet configured.";
+    if (result.rows.length === 0) return "No energy usage data available yet.";
     return JSON.stringify(result.rows);
   },
   {
@@ -56,6 +69,14 @@ const getHighEnergyAssetsTool = tool(
 
 const createMaintenanceTicketTool = tool(
   async ({ asset_name, floor_no, issue, priority }) => {
+    // Check for existing open ticket to avoid duplicates
+    const existing = await pool.query(
+      "SELECT id FROM maintenance_tickets WHERE LOWER(asset_name) = LOWER($1) AND floor_no = $2 AND status = 'open'",
+      [asset_name, floor_no]
+    );
+    if (existing.rows.length > 0) {
+      return `Ticket already exists for ${asset_name} on floor ${floor_no} (Ticket #${existing.rows[0].id}) — skipped.`;
+    }
     const result = await pool.query(
       `INSERT INTO maintenance_tickets (asset_name, floor_no, issue, priority, status, created_at, updated_at)
        VALUES ($1, $2, $3, $4, 'open', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`,
@@ -65,7 +86,7 @@ const createMaintenanceTicketTool = tool(
   },
   {
     name: "create_maintenance_ticket",
-    description: "Create a maintenance ticket for a faulty or at-risk asset",
+    description: "Create a maintenance ticket for a faulty asset. Automatically skips if an open ticket already exists.",
     schema: z.object({
       asset_name: z.string(),
       floor_no: z.number(),
@@ -78,139 +99,273 @@ const createMaintenanceTicketTool = tool(
 const getOpenTicketsTool = tool(
   async () => {
     const result = await pool.query(
-      "SELECT * FROM maintenance_tickets WHERE status = 'open' ORDER BY created_at DESC"
+      "SELECT * FROM maintenance_tickets WHERE status = 'open' ORDER BY priority DESC, created_at DESC"
     );
     if (result.rows.length === 0) return "No open maintenance tickets.";
     return JSON.stringify(result.rows);
   },
   {
     name: "get_open_tickets",
-    description: "Get all open maintenance tickets",
+    description: "Get all open maintenance tickets ordered by priority",
+    schema: z.object({}),
+  }
+);
+
+const updateAssetStatusTool = tool(
+  async ({ asset_name, floor_no, status }) => {
+    const normalized = STATUS_MAP[status.toLowerCase()] ?? status.toLowerCase();
+    const result = await pool.query(
+      "UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE LOWER(asset_name) = LOWER($2) AND floor_no = $3 RETURNING *",
+      [normalized, asset_name, floor_no]
+    );
+    if (result.rows.length === 0) return `Asset not found: ${asset_name} on floor ${floor_no}`;
+    return `Updated ${result.rows[0].asset_name} on floor ${floor_no} to ${normalized}`;
+  },
+  {
+    name: "update_asset_status",
+    description: "Update the status of a specific asset on a specific floor (operational, faulty, maintenance)",
+    schema: z.object({
+      asset_name: z.string(),
+      floor_no: z.number(),
+      status: z.enum(["operational", "faulty", "maintenance"]),
+    }),
+  }
+);
+
+const closeTicketTool = tool(
+  async ({ ticket_id, resolution }) => {
+    const result = await pool.query(
+      "UPDATE maintenance_tickets SET status = 'closed', issue = issue || $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *",
+      [` | Resolved: ${resolution}`, ticket_id]
+    );
+    if (result.rows.length === 0) return `Ticket #${ticket_id} not found.`;
+    return `Ticket #${ticket_id} closed — ${result.rows[0].asset_name} (Floor ${result.rows[0].floor_no}). Resolution: ${resolution}`;
+  },
+  {
+    name: "close_ticket",
+    description: "Close a maintenance ticket when the issue has been resolved",
+    schema: z.object({
+      ticket_id: z.number(),
+      resolution: z.string().describe("Brief description of how the issue was resolved"),
+    }),
+  }
+);
+
+const getFloorRiskScoresTool = tool(
+  async () => {
+    const result = await pool.query(`
+      SELECT
+        floor_no,
+        COUNT(*) AS total_assets,
+        COUNT(*) FILTER (WHERE status = 'faulty') AS faulty_count,
+        COUNT(*) FILTER (WHERE status = 'maintenance') AS maintenance_count,
+        ROUND(
+          (COUNT(*) FILTER (WHERE status IN ('faulty','maintenance'))::numeric / COUNT(*)) * 100, 1
+        ) AS risk_pct
+      FROM building_assets
+      GROUP BY floor_no
+      ORDER BY risk_pct DESC, floor_no
+    `);
+    const rows = result.rows.map((r) => ({
+      ...r,
+      risk_level:
+        Number(r.risk_pct) >= 50 ? "CRITICAL" :
+        Number(r.risk_pct) >= 30 ? "HIGH" :
+        Number(r.risk_pct) >= 10 ? "MEDIUM" : "LOW",
+    }));
+    return JSON.stringify(rows);
+  },
+  {
+    name: "get_floor_risk_scores",
+    description: "Calculate risk score and level (LOW/MEDIUM/HIGH/CRITICAL) per floor",
+    schema: z.object({}),
+  }
+);
+
+const getRepeatOffendersTool = tool(
+  async () => {
+    const result = await pool.query(`
+      SELECT asset_name, floor_no, COUNT(*) AS ticket_count,
+             MAX(created_at) AS last_ticket_date
+      FROM maintenance_tickets
+      GROUP BY asset_name, floor_no
+      HAVING COUNT(*) > 1
+      ORDER BY ticket_count DESC
+      LIMIT 10
+    `);
+    if (result.rows.length === 0) return "No repeat offenders found — no asset has had more than one ticket.";
+    return JSON.stringify(result.rows);
+  },
+  {
+    name: "get_repeat_offenders",
+    description: "Find assets that have had multiple maintenance tickets — persistent problem assets",
     schema: z.object({}),
   }
 );
 
 const sendEmailTool = tool(
   async ({ subject, body }) => {
+    const riskColor = body.includes("CRITICAL") ? "#dc2626" :
+                      body.includes("HIGH") ? "#ea580c" :
+                      body.includes("MEDIUM") ? "#d97706" : "#16a34a";
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:sans-serif;">
+  <div style="max-width:640px;margin:32px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
+    <div style="background:#1e3a5f;padding:24px 32px;">
+      <h1 style="margin:0;color:#ffffff;font-size:20px;">🏢 Building Maintenance Report</h1>
+      <p style="margin:4px 0 0;color:#93c5fd;font-size:13px;">${new Date().toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" })}</p>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#f8fafc;border-left:4px solid ${riskColor};padding:16px 20px;border-radius:0 8px 8px 0;margin-bottom:24px;">
+        <p style="margin:0;color:${riskColor};font-weight:bold;font-size:15px;">
+          ${body.includes("CRITICAL") ? "⛔ CRITICAL RISK" :
+            body.includes("HIGH") ? "🔴 HIGH RISK" :
+            body.includes("MEDIUM") ? "🟠 MEDIUM RISK" : "🟢 LOW RISK"}
+        </p>
+      </div>
+      <div style="white-space:pre-wrap;font-size:14px;color:#374151;line-height:1.7;background:#f9fafb;padding:20px;border-radius:8px;border:1px solid #e5e7eb;">
+${body}
+      </div>
+    </div>
+    <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
+      <p style="margin:0;font-size:12px;color:#6b7280;">Sent automatically by Building Maintenance Agent · MN Building Digital Twin</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
     const { data, error } = await resend.emails.send({
       from: "Building Agent <onboarding@resend.dev>",
       to: MANAGER_EMAIL,
       subject,
-      html: `<div style="font-family: sans-serif; max-width: 600px; padding: 24px;">
-        <h2 style="color: #1e40af;">🏢 Building Maintenance Report</h2>
-        <pre style="background: #f3f4f6; padding: 16px; border-radius: 8px; white-space: pre-wrap; font-size: 14px;">${body}</pre>
-        <p style="color: #6b7280; font-size: 12px; margin-top: 24px;">Sent by Building Maintenance Agent</p>
-      </div>`,
+      html,
     });
     if (error) return `Email failed: ${JSON.stringify(error)}`;
     return `Email sent to ${MANAGER_EMAIL} (ID: ${data?.id})`;
   },
   {
     name: "send_email_summary",
-    description: "Send an email summary report to the building manager",
+    description: "Send a formatted HTML email report to the building manager",
     schema: z.object({
       subject: z.string(),
-      body: z.string().describe("Plain text email body"),
+      body: z.string().describe("Structured plain-text body with sections: Risk Level, Faulty Assets, Floor Risk Scores, Actions Taken, Recommendations"),
     }),
   }
 );
 
-const tools = [
+// ── Tool registry ─────────────────────────────────────────────────────────────
+
+export const agentTools = [
   getBuildingStatusTool,
   getFaultyAssetsTool,
   getHighEnergyAssetsTool,
   createMaintenanceTicketTool,
   getOpenTicketsTool,
+  updateAssetStatusTool,
+  closeTicketTool,
+  getFloorRiskScoresTool,
+  getRepeatOffendersTool,
   sendEmailTool,
 ];
 
-const toolMap = Object.fromEntries(tools.map((t) => [t.name, t]));
+const toolMap = Object.fromEntries(agentTools.map((t) => [t.name, t]));
 
-const TOOL_LABELS: Record<string, string> = {
+export const TOOL_LABELS: Record<string, string> = {
   get_building_status: "Checking building status",
   get_faulty_assets: "Scanning for faulty assets",
   get_high_energy_assets: "Analysing energy usage",
   create_maintenance_ticket: "Creating maintenance ticket",
   get_open_tickets: "Fetching open tickets",
+  update_asset_status: "Updating asset status",
+  close_ticket: "Closing resolved ticket",
+  get_floor_risk_scores: "Calculating floor risk scores",
+  get_repeat_offenders: "Scanning repeat offenders",
   send_email_summary: "Sending email report",
 };
 
-export async function POST(req: Request) {
-  try {
-    const { goal, history = [] } = await req.json();
+export const AGENT_SYSTEM_PROMPT = `
+You are an autonomous Building Maintenance Agent for a smart 20-floor building management system.
 
-    const model = new ChatOpenAI({
-      model: "gpt-4o-mini",
-      temperature: 0,
-    }).bindTools(tools);
-
-    const systemPrompt = `
-You are an autonomous Building Maintenance Agent for a smart building management system.
-
-Given a goal, you independently decide which tools to call and in what sequence to complete the task fully.
+Given a goal, you independently decide which tools to call and in what sequence.
 
 Your tools:
 - get_building_status: full snapshot of all assets
 - get_faulty_assets: only faulty/maintenance assets
 - get_high_energy_assets: top energy consumers
-- create_maintenance_ticket: log an issue for an asset (call once per faulty asset)
-- get_open_tickets: view existing tickets
-- send_email_summary: email the building manager a report
+- create_maintenance_ticket: log a new issue (auto-skips duplicates)
+- get_open_tickets: view existing open tickets
+- update_asset_status: change an asset status (e.g. faulty → maintenance when ticketed)
+- close_ticket: close a resolved ticket
+- get_floor_risk_scores: risk level per floor (LOW/MEDIUM/HIGH/CRITICAL)
+- get_repeat_offenders: assets with multiple historical tickets
+- send_email_summary: email a formatted report to the manager
 
 Behaviour rules:
-- For risk assessment: check faulty assets first, then create tickets for each faulty asset, then send an email summary
-- For ticket creation: create one ticket per asset, do not duplicate
-- Always end with a concise summary of findings and actions taken
-- Be efficient — avoid unnecessary repeated tool calls
-- Format email bodies clearly with sections: Risk Level, Faulty Assets, Actions Taken, Recommendations
+- For risk assessments: get_faulty_assets → get_floor_risk_scores → get_repeat_offenders → create tickets → update statuses → send email
+- When creating a ticket for a faulty asset, also update its status to "maintenance"
+- Prioritise: assets affecting multiple floors (lifts) or safety (fire extinguishers) are CRITICAL
+- Cascade risk: if both Lift A and Lift B are faulty on the same floor, flag as floor isolation risk
+- Always end with send_email_summary containing: Risk Level, Faulty Assets list, Floor Risk Scores, Actions Taken, Recommendations
+- Be efficient — do not repeat tool calls
 `;
 
-    const historyMessages = (history as { role: string; content: string }[]).map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
+// ── Route handler ─────────────────────────────────────────────────────────────
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let messages: any[] = [
-      { role: "system", content: systemPrompt },
-      ...historyMessages,
-      { role: "user", content: goal },
-    ];
+export async function runAgent(goal: string, history: { role: string; content: string }[] = []) {
+  const model = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 }).bindTools(agentTools);
 
-    const steps: { tool: string; label: string; args: Record<string, unknown>; result: string }[] = [];
-    const MAX_ITERATIONS = 15;
+  const historyMessages = history.map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+  }));
 
-    for (let i = 0; i < MAX_ITERATIONS; i++) {
-      const response = await model.invoke(messages);
-      const toolCalls = response.tool_calls || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let messages: any[] = [
+    { role: "system", content: AGENT_SYSTEM_PROMPT },
+    ...historyMessages,
+    { role: "user", content: goal },
+  ];
 
-      if (toolCalls.length === 0) {
-        return NextResponse.json({ steps, summary: response.content });
-      }
+  const steps: { tool: string; label: string; args: Record<string, unknown>; result: string }[] = [];
 
-      const toolMessages = [];
-      for (const call of toolCalls) {
-        const selectedTool = toolMap[call.name];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = selectedTool ? await (selectedTool as any).invoke(call.args) : "Tool not found.";
-        const resultStr = String(result);
-        steps.push({
-          tool: call.name,
-          label: TOOL_LABELS[call.name] ?? call.name,
-          args: call.args as Record<string, unknown>,
-          result: resultStr,
-        });
-        toolMessages.push({
-          role: "tool" as const,
-          tool_call_id: call.id!,
-          content: resultStr,
-        });
-      }
+  for (let i = 0; i < 20; i++) {
+    const response = await model.invoke(messages);
+    const toolCalls = response.tool_calls || [];
 
-      messages = [...messages, response, ...toolMessages];
+    if (toolCalls.length === 0) {
+      return { steps, summary: String(response.content) };
     }
 
-    return NextResponse.json({ steps, summary: "Agent completed maximum iterations." });
+    const toolMessages = [];
+    for (const call of toolCalls) {
+      const selectedTool = toolMap[call.name];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = selectedTool ? await (selectedTool as any).invoke(call.args) : "Tool not found.";
+      const resultStr = String(result);
+      steps.push({
+        tool: call.name,
+        label: TOOL_LABELS[call.name] ?? call.name,
+        args: call.args as Record<string, unknown>,
+        result: resultStr,
+      });
+      toolMessages.push({ role: "tool" as const, tool_call_id: call.id!, content: resultStr });
+    }
+
+    messages = [...messages, response, ...toolMessages];
+  }
+
+  return { steps, summary: "Agent completed maximum iterations." };
+}
+
+export async function POST(req: Request) {
+  try {
+    const { goal, history = [] } = await req.json();
+    const result = await runAgent(goal, history);
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Agent error:", error);
     return NextResponse.json(

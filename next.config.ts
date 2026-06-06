@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
     LANGSMITH_PROJECT: process.env.LANGSMITH_PROJECT ?? "",
     LANGSMITH_ENDPOINT: process.env.LANGSMITH_ENDPOINT ?? "",
     RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
+    CRON_SECRET: process.env.CRON_SECRET ?? "",
   },
 };
 
