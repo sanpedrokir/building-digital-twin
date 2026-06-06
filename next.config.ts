@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
     LANGSMITH_TRACING: process.env.LANGSMITH_TRACING ?? "false",
     LANGSMITH_PROJECT: process.env.LANGSMITH_PROJECT ?? "",
     LANGSMITH_ENDPOINT: process.env.LANGSMITH_ENDPOINT ?? "",
+    RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
   },
 };
 
