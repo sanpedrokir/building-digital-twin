@@ -21,7 +21,18 @@ export async function PATCH(req: Request) {
       "UPDATE maintenance_tickets SET status = $1, issue = issue || $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *",
       [status, resolution ? ` | Resolved: ${resolution}` : "", id]
     );
-    return NextResponse.json(result.rows[0]);
+    const ticket = result.rows[0];
+    if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
+
+    // When closing a ticket, restore the asset to operational
+    if (status === "closed") {
+      await pool.query(
+        "UPDATE building_assets SET status = 'operational', last_updated = CURRENT_TIMESTAMP WHERE LOWER(asset_name) = LOWER($1) AND floor_no = $2",
+        [ticket.asset_name, ticket.floor_no]
+      );
+    }
+
+    return NextResponse.json(ticket);
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

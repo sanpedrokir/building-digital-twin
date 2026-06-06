@@ -750,6 +750,8 @@ export default function Home() {
       body: JSON.stringify({ id, status: "closed", resolution: "Resolved by facility manager" }),
     });
     fetchTickets();
+    fetchAssets();
+    fetchFloorRisks();
   };
 
   useEffect(() => {
