@@ -61,19 +61,58 @@ const STATUS_MAP: Record<string, string> = {
   repair: "maintenance",
 };
 
+// Strip punctuation, normalise whitespace, lowercase
+function normalizeAssetName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Jaccard word-set similarity (0–1)
+function wordSimilarity(a: string, b: string): number {
+  const na = normalizeAssetName(a);
+  const nb = normalizeAssetName(b);
+  if (na === nb) return 1;
+  const wordsA = new Set(na.split(" ").filter(Boolean));
+  const wordsB = new Set(nb.split(" ").filter(Boolean));
+  const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
 const updateAssetStatusTool = tool(
   async ({ asset_name, status }) => {
     const normalized = STATUS_MAP[status.toLowerCase().trim()] ?? status.toLowerCase().trim();
+
+    // Fetch all assets and find the best fuzzy match
+    const allAssets = await pool.query("SELECT id, asset_name FROM building_assets");
+    let matchedId: number | null = null;
+    let matchedName: string | null = null;
+    let bestScore = 0;
+
+    for (const row of allAssets.rows) {
+      const score = wordSimilarity(asset_name, row.asset_name);
+      if (score > bestScore) {
+        bestScore = score;
+        matchedId = row.id;
+        matchedName = row.asset_name;
+      }
+    }
+
+    if (matchedId === null || bestScore < 0.4) {
+      return `Asset not found. Could not find a close match for "${asset_name}".`;
+    }
+
     const result = await pool.query(
-      "UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE LOWER(asset_name) = LOWER($2) RETURNING *",
-      [normalized, asset_name]
+      "UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *",
+      [normalized, matchedId]
     );
 
     if (result.rows.length === 0) {
       return "Asset not found.";
     }
 
-    return `Updated ${result.rows[0].asset_name} to ${result.rows[0].status}`;
+    const wasExact = normalizeAssetName(asset_name) === normalizeAssetName(matchedName ?? "");
+    const note = wasExact ? "" : ` (matched to "${result.rows[0].asset_name}")`;
+    return `Updated ${result.rows[0].asset_name} to ${result.rows[0].status}${note}`;
   },
   {
     name: "update_asset_status",
