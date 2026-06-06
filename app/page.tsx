@@ -701,7 +701,7 @@ export default function Home() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [activeTab, setActiveTab] = useState<"building" | "chat" | "agent" | "tickets">("chat");
+  const [activeTab, setActiveTab] = useState<"building" | "chat" | "agent" | "tickets">("agent");
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const [agentLoading, setAgentLoading] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
