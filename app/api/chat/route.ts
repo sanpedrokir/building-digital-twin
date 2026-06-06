@@ -66,16 +66,37 @@ function normalizeAssetName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// Jaccard word-set similarity (0–1)
+// Character-level edit distance to handle typos within a word
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+  return dp[m][n];
+}
+
+// Fuzzy similarity between two individual words (0–1)
+function fuzzyWordMatch(w1: string, w2: string): number {
+  if (w1 === w2) return 1;
+  const maxLen = Math.max(w1.length, w2.length);
+  if (maxLen === 0) return 1;
+  return Math.max(0, 1 - levenshtein(w1, w2) / maxLen);
+}
+
+// Each query word finds its best fuzzy match in the asset words, averaged
 function wordSimilarity(a: string, b: string): number {
   const na = normalizeAssetName(a);
   const nb = normalizeAssetName(b);
   if (na === nb) return 1;
-  const wordsA = new Set(na.split(" ").filter(Boolean));
-  const wordsB = new Set(nb.split(" ").filter(Boolean));
-  const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
-  const union = new Set([...wordsA, ...wordsB]).size;
-  return union === 0 ? 0 : intersection / union;
+  const wordsA = na.split(" ").filter(Boolean);
+  const wordsB = nb.split(" ").filter(Boolean);
+  if (wordsA.length === 0 || wordsB.length === 0) return 0;
+  const scoreA = wordsA.map((w) => Math.max(...wordsB.map((v) => fuzzyWordMatch(w, v))));
+  const scoreB = wordsB.map((w) => Math.max(...wordsA.map((v) => fuzzyWordMatch(w, v))));
+  return ([...scoreA, ...scoreB].reduce((s, x) => s + x, 0)) / (scoreA.length + scoreB.length);
 }
 
 const updateAssetStatusTool = tool(
@@ -151,25 +172,28 @@ export async function POST(req: Request) {
     const systemPrompt = `
 You are an AI Building Digital Twin Assistant.
 
-You help users understand the current state of a building.
+You help users understand and manage the current state of a building.
 
-Use the tools when the user asks about:
-- building health
-- faulty assets
-- asset status
-- updating an asset
-- simulation questions
+Use the tools when the user:
+- asks about building health or asset status
+- asks about faulty or maintenance assets
+- wants to update an asset (commands like "update X to faulty")
+- reports that an asset IS broken/damaged/faulty/not working (treat these as update requests)
+- asks simulation questions
 
-When updating asset status, always use one of these exact values: operational, faulty, maintenance
+When the user says something like "X is broken", "X is not working", "X is damaged", treat it as a request to update that asset's status — call update_asset_status.
+
+When updating asset status, always use one of these exact values: operational, faulty, maintenance.
+Map user words: broken/damaged/fault/failed/error/offline → faulty, working/ok/good/running → operational, warning/repair → maintenance.
+
+If the asset name exists on multiple floors, ask the user to specify the floor number.
 
 When giving answers:
-- be clear
-- be short
-- mention which assets need attention
-- give a simple building health score out of 100 if useful
-
-For simulation questions, use the database status first, then explain the likely operational impact.
+- be clear and short
+- confirm what was updated and on which floor
+- mention assets that need attention
 `;
+
 
     const firstResponse = await model.invoke([
       { role: "system", content: systemPrompt },
