@@ -341,7 +341,7 @@ function FireEmergencyModal({
         </div>
 
         <div className="px-5 py-4 space-y-5">
-          {/* People per floor — shown first so it's immediately visible */}
+          {/* 1 — People per Floor */}
           {occupancy.length > 0 && (
             <div className="bg-gray-900 border border-gray-700 rounded-xl px-4 py-3">
               <div className="flex items-center justify-between mb-3">
@@ -378,7 +378,39 @@ function FireEmergencyModal({
             </div>
           )}
 
-          {/* Immediate action steps */}
+          {/* 2 — Highest Risk Floors */}
+          {highRiskFloors.length > 0 && (
+            <div className="bg-orange-950/50 border border-orange-800 rounded-xl px-4 py-3">
+              <p className="text-orange-400 text-xs font-bold uppercase tracking-widest mb-2">Highest Risk Floors — Prioritise Evacuation</p>
+              <div className="space-y-1.5">
+                {highRiskFloors.map((f) => (
+                  <div key={f.floor_no} className="flex items-center justify-between">
+                    <p className="text-sm text-orange-200">Floor {f.floor_no}</p>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${RISK_BADGE[f.risk_level]}`}>
+                      {f.risk_level}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 3 — Lifts Already Down */}
+          {faultyLifts.length > 0 && (
+            <div className="bg-red-950/60 border border-red-700 rounded-xl px-4 py-3">
+              <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-2">⚠ Lifts Already Down — Do Not Use</p>
+              <div className="space-y-1">
+                {faultyLifts.map((a) => (
+                  <p key={a.id} className="text-sm text-red-300">
+                    {a.asset_name} — Floor {a.floor_no}
+                    <span className="ml-2 text-xs text-red-500 capitalize">({a.status})</span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 4 — Immediate Actions */}
           <div>
             <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-3">Immediate Actions</p>
             <div className="space-y-2">
@@ -400,39 +432,7 @@ function FireEmergencyModal({
             </div>
           </div>
 
-          {/* Lifts already down */}
-          {faultyLifts.length > 0 && (
-            <div className="bg-red-950/60 border border-red-700 rounded-xl px-4 py-3">
-              <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-2">⚠ Lifts Already Down — Do Not Use</p>
-              <div className="space-y-1">
-                {faultyLifts.map((a) => (
-                  <p key={a.id} className="text-sm text-red-300">
-                    {a.asset_name} — Floor {a.floor_no}
-                    <span className="ml-2 text-xs text-red-500 capitalize">({a.status})</span>
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* High-risk floors */}
-          {highRiskFloors.length > 0 && (
-            <div className="bg-orange-950/50 border border-orange-800 rounded-xl px-4 py-3">
-              <p className="text-orange-400 text-xs font-bold uppercase tracking-widest mb-2">Highest Risk Floors — Prioritise Evacuation</p>
-              <div className="space-y-1.5">
-                {highRiskFloors.map((f) => (
-                  <div key={f.floor_no} className="flex items-center justify-between">
-                    <p className="text-sm text-orange-200">Floor {f.floor_no}</p>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${RISK_BADGE[f.risk_level]}`}>
-                      {f.risk_level}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* AI briefing */}
+          {/* 5 — AI briefing */}
           <div>
             <button
               onClick={onGetBriefing}
