@@ -341,6 +341,43 @@ function FireEmergencyModal({
         </div>
 
         <div className="px-5 py-4 space-y-5">
+          {/* People per floor — shown first so it's immediately visible */}
+          {occupancy.length > 0 && (
+            <div className="bg-gray-900 border border-gray-700 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-white text-sm font-bold uppercase tracking-widest">People per Floor</p>
+                <span className="text-sm text-red-400 font-bold">{totalPeople} total at risk</span>
+              </div>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {[...occupancy].sort((a, b) => b.occupancy_count - a.occupancy_count).map((f) => {
+                  const risk = floorRisks.find((r) => r.floor_no === f.floor_no);
+                  const isHighRisk = risk && (risk.risk_level === "HIGH" || risk.risk_level === "CRITICAL");
+                  const barPct = Math.round((f.occupancy_count / Math.max(...occupancy.map(o => o.occupancy_count))) * 100);
+                  return (
+                    <div key={f.floor_no} className={`rounded-lg px-3 py-2 ${isHighRisk ? "bg-red-950/50 border border-red-800" : "bg-gray-800"}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-gray-200">Floor {f.floor_no}</span>
+                        <span className={`text-sm font-bold ${isHighRisk ? "text-red-300" : "text-white"}`}>
+                          {f.occupancy_count} {f.occupancy_count === 1 ? "person" : "people"}
+                          {isHighRisk && " ⚠"}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-700 rounded-full">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${isHighRisk ? "bg-red-500" : "bg-blue-500"}`}
+                          style={{ width: `${barPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-gray-600 text-[10px] mt-2 text-center">
+                Floors with ⚠ have faulty assets — evacuate these first
+              </p>
+            </div>
+          )}
+
           {/* Immediate action steps */}
           <div>
             <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-3">Immediate Actions</p>
@@ -392,43 +429,6 @@ function FireEmergencyModal({
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* People per floor */}
-          {occupancy.length > 0 && (
-            <div className="bg-gray-900 border border-gray-700 rounded-xl px-4 py-3">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-white text-xs font-bold uppercase tracking-widest">People per Floor</p>
-                <span className="text-xs text-red-400 font-bold">{totalPeople} total</span>
-              </div>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {[...occupancy].sort((a, b) => b.occupancy_count - a.occupancy_count).map((f) => {
-                  const risk = floorRisks.find((r) => r.floor_no === f.floor_no);
-                  const isHighRisk = risk && (risk.risk_level === "HIGH" || risk.risk_level === "CRITICAL");
-                  const barPct = Math.round((f.occupancy_count / Math.max(...occupancy.map(o => o.occupancy_count))) * 100);
-                  return (
-                    <div key={f.floor_no} className={`rounded-lg px-3 py-2 ${isHighRisk ? "bg-red-950/50 border border-red-800" : "bg-gray-800"}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-300">Floor {f.floor_no}</span>
-                        <span className={`text-xs font-bold ${isHighRisk ? "text-red-300" : "text-white"}`}>
-                          {f.occupancy_count} {f.occupancy_count === 1 ? "person" : "people"}
-                          {isHighRisk && " ⚠"}
-                        </span>
-                      </div>
-                      <div className="w-full h-1 bg-gray-700 rounded-full">
-                        <div
-                          className={`h-1 rounded-full transition-all ${isHighRisk ? "bg-red-500" : "bg-blue-500"}`}
-                          style={{ width: `${barPct}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="text-gray-600 text-[10px] mt-2 text-center">
-                Floors with ⚠ have faulty assets — these are highest evacuation priority
-              </p>
             </div>
           )}
 
