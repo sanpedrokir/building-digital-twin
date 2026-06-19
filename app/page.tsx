@@ -283,6 +283,136 @@ function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   );
 }
 
+// ── Fire Emergency Modal ──────────────────────────────────────────────────────
+
+function FireEmergencyModal({
+  assets,
+  floorRisks,
+  onClose,
+  onGetBriefing,
+  briefing,
+  briefingLoading,
+}: {
+  assets: Asset[];
+  floorRisks: FloorRisk[];
+  onClose: () => void;
+  onGetBriefing: () => void;
+  briefing: string;
+  briefingLoading: boolean;
+}) {
+  const faultyLifts = assets.filter(
+    (a) =>
+      (a.asset_name.toLowerCase().includes("lift") || a.asset_name.toLowerCase().includes("elevator")) &&
+      (statusKey(a.status) === "faulty" || statusKey(a.status) === "maintenance")
+  );
+  const highRiskFloors = floorRisks
+    .filter((f) => f.risk_level === "HIGH" || f.risk_level === "CRITICAL")
+    .sort((a, b) => b.risk_pct - a.risk_pct);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-950 border-2 border-red-500 rounded-2xl w-[calc(100vw-2rem)] max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl shadow-red-900/60"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-red-900/80 px-5 py-4 flex items-center justify-between rounded-t-xl border-b border-red-700">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl animate-pulse">🔥</span>
+            <div>
+              <h2 className="text-white font-bold text-xl tracking-wide">FIRE EMERGENCY</h2>
+              <p className="text-red-300 text-xs">Evacuation Protocol — Act Immediately</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-red-400 hover:text-white text-xl leading-none">✕</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-5">
+          {/* Immediate action steps */}
+          <div>
+            <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-3">Immediate Actions</p>
+            <div className="space-y-2">
+              {[
+                { n: "1", label: "Call Emergency Services", detail: "999 (UK) · 112 (EU) · 911 (US)" },
+                { n: "2", label: "Activate Fire Alarm", detail: "Break glass at nearest call point" },
+                { n: "3", label: "Use STAIRS — NOT Lifts", detail: "Lifts must never be used during a fire" },
+                { n: "4", label: "Evacuate Immediately", detail: "Close doors behind you — do not collect belongings" },
+                { n: "5", label: "Go to Muster Point", detail: "Stay there until fire brigade declares all-clear" },
+              ].map(({ n, label, detail }) => (
+                <div key={n} className="flex items-start gap-3 bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+                  <span className="bg-red-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5">{n}</span>
+                  <div>
+                    <p className="text-white text-sm font-semibold">{label}</p>
+                    <p className="text-gray-400 text-xs mt-0.5">{detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Lifts already down */}
+          {faultyLifts.length > 0 && (
+            <div className="bg-red-950/60 border border-red-700 rounded-xl px-4 py-3">
+              <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-2">⚠ Lifts Already Down — Do Not Use</p>
+              <div className="space-y-1">
+                {faultyLifts.map((a) => (
+                  <p key={a.id} className="text-sm text-red-300">
+                    {a.asset_name} — Floor {a.floor_no}
+                    <span className="ml-2 text-xs text-red-500 capitalize">({a.status})</span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* High-risk floors */}
+          {highRiskFloors.length > 0 && (
+            <div className="bg-orange-950/50 border border-orange-800 rounded-xl px-4 py-3">
+              <p className="text-orange-400 text-xs font-bold uppercase tracking-widest mb-2">Highest Risk Floors — Prioritise Evacuation</p>
+              <div className="space-y-1.5">
+                {highRiskFloors.map((f) => (
+                  <div key={f.floor_no} className="flex items-center justify-between">
+                    <p className="text-sm text-orange-200">Floor {f.floor_no}</p>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${RISK_BADGE[f.risk_level]}`}>
+                      {f.risk_level}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* AI briefing */}
+          <div>
+            <button
+              onClick={onGetBriefing}
+              disabled={briefingLoading || !!briefing}
+              className="w-full py-3 rounded-xl bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors"
+            >
+              {briefingLoading ? "Getting AI briefing…" : briefing ? "✓ AI Briefing Received" : "Get AI Emergency Briefing"}
+            </button>
+            {briefingLoading && (
+              <div className="mt-3 flex justify-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-bounce [animation-delay:300ms]" />
+              </div>
+            )}
+            {briefing && (
+              <div className="mt-3 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
+                {briefing}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Asset Card (clickable) ────────────────────────────────────────────────────
 
 function AssetCard({ asset, onClick }: { asset: Asset; onClick: () => void }) {
@@ -706,6 +836,9 @@ export default function Home() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [floorRisks, setFloorRisks] = useState<FloorRisk[]>([]);
+  const [fireEmergencyOpen, setFireEmergencyOpen] = useState(false);
+  const [fireBriefing, setFireBriefing] = useState("");
+  const [fireBriefingLoading, setFireBriefingLoading] = useState(false);
 
   const fetchAssets = async () => {
     try {
@@ -810,13 +943,44 @@ export default function Home() {
     }
   };
 
+  const handleOpenFireEmergency = () => {
+    setFireBriefing("");
+    setFireBriefingLoading(false);
+    setFireEmergencyOpen(true);
+  };
+
+  const handleFireBriefing = async () => {
+    setFireBriefingLoading(true);
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal: "FIRE EMERGENCY: The building is on fire right now. Immediately check building status. Identify which floors are at highest risk, which lifts and fire-safety assets are faulty, and give specific evacuation priorities and actions for the facility manager. Be concise and action-oriented.",
+        }),
+      });
+      const data = await res.json();
+      setFireBriefing(data.summary ?? "No briefing available.");
+    } catch {
+      setFireBriefing("Failed to reach AI. Follow standard evacuation protocol above.");
+    } finally {
+      setFireBriefingLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
       <header className="flex items-center gap-3 px-4 md:px-6 py-3 border-b border-gray-700 bg-gray-900 shrink-0">
         <div className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
         <h1 className="text-base font-bold tracking-tight">Digital Twin of MN Building</h1>
         <span className="hidden sm:inline ml-2 text-xs text-gray-500">Click any asset to see its live visual</span>
-        <div className="hidden md:flex ml-auto gap-2">
+        <button
+          onClick={handleOpenFireEmergency}
+          className="ml-auto mr-2 md:mr-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 text-white text-xs font-bold transition-colors border border-red-500 animate-pulse hover:animate-none shrink-0"
+        >
+          🔥 FIRE
+        </button>
+        <div className="hidden md:flex md:ml-2 gap-2">
           <button onClick={() => setActiveTab("chat")}
             className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${activeTab === "chat" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}>
             💬 AI Chat
@@ -879,6 +1043,17 @@ export default function Home() {
 
       {selectedAsset && (
         <AssetModal asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
+      )}
+
+      {fireEmergencyOpen && (
+        <FireEmergencyModal
+          assets={assets}
+          floorRisks={floorRisks}
+          onClose={() => setFireEmergencyOpen(false)}
+          onGetBriefing={handleFireBriefing}
+          briefing={fireBriefing}
+          briefingLoading={fireBriefingLoading}
+        />
       )}
     </div>
   );
