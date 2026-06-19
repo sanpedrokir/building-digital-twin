@@ -47,6 +47,12 @@ type Asset = {
   last_updated: string;
 };
 
+type FloorOccupancy = {
+  floor_no: number;
+  occupancy_count: number;
+  last_updated: string;
+};
+
 const RISK_BADGE: Record<string, string> = {
   LOW: "bg-emerald-900/60 text-emerald-400 border-emerald-700",
   MEDIUM: "bg-amber-900/60 text-amber-400 border-amber-700",
@@ -288,6 +294,7 @@ function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
 function FireEmergencyModal({
   assets,
   floorRisks,
+  occupancy,
   onClose,
   onGetBriefing,
   briefing,
@@ -295,6 +302,7 @@ function FireEmergencyModal({
 }: {
   assets: Asset[];
   floorRisks: FloorRisk[];
+  occupancy: FloorOccupancy[];
   onClose: () => void;
   onGetBriefing: () => void;
   briefing: string;
@@ -308,6 +316,8 @@ function FireEmergencyModal({
   const highRiskFloors = floorRisks
     .filter((f) => f.risk_level === "HIGH" || f.risk_level === "CRITICAL")
     .sort((a, b) => b.risk_pct - a.risk_pct);
+  const totalPeople = occupancy.reduce((sum, f) => sum + f.occupancy_count, 0);
+  const occupancyByFloor = Object.fromEntries(occupancy.map((f) => [f.floor_no, f.occupancy_count]));
 
   return (
     <div
@@ -382,6 +392,43 @@ function FireEmergencyModal({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* People per floor */}
+          {occupancy.length > 0 && (
+            <div className="bg-gray-900 border border-gray-700 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-white text-xs font-bold uppercase tracking-widest">People per Floor</p>
+                <span className="text-xs text-red-400 font-bold">{totalPeople} total</span>
+              </div>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {[...occupancy].sort((a, b) => b.occupancy_count - a.occupancy_count).map((f) => {
+                  const risk = floorRisks.find((r) => r.floor_no === f.floor_no);
+                  const isHighRisk = risk && (risk.risk_level === "HIGH" || risk.risk_level === "CRITICAL");
+                  const barPct = Math.round((f.occupancy_count / Math.max(...occupancy.map(o => o.occupancy_count))) * 100);
+                  return (
+                    <div key={f.floor_no} className={`rounded-lg px-3 py-2 ${isHighRisk ? "bg-red-950/50 border border-red-800" : "bg-gray-800"}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-300">Floor {f.floor_no}</span>
+                        <span className={`text-xs font-bold ${isHighRisk ? "text-red-300" : "text-white"}`}>
+                          {f.occupancy_count} {f.occupancy_count === 1 ? "person" : "people"}
+                          {isHighRisk && " ⚠"}
+                        </span>
+                      </div>
+                      <div className="w-full h-1 bg-gray-700 rounded-full">
+                        <div
+                          className={`h-1 rounded-full transition-all ${isHighRisk ? "bg-red-500" : "bg-blue-500"}`}
+                          style={{ width: `${barPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-gray-600 text-[10px] mt-2 text-center">
+                Floors with ⚠ have faulty assets — these are highest evacuation priority
+              </p>
             </div>
           )}
 
@@ -839,6 +886,7 @@ export default function Home() {
   const [fireEmergencyOpen, setFireEmergencyOpen] = useState(false);
   const [fireBriefing, setFireBriefing] = useState("");
   const [fireBriefingLoading, setFireBriefingLoading] = useState(false);
+  const [fireOccupancy, setFireOccupancy] = useState<FloorOccupancy[]>([]);
 
   const fetchAssets = async () => {
     try {
@@ -943,10 +991,17 @@ export default function Home() {
     }
   };
 
-  const handleOpenFireEmergency = () => {
+  const handleOpenFireEmergency = async () => {
     setFireBriefing("");
     setFireBriefingLoading(false);
     setFireEmergencyOpen(true);
+    try {
+      const res = await fetch("/api/occupancy");
+      const data = await res.json();
+      if (Array.isArray(data)) setFireOccupancy(data);
+    } catch {
+      // occupancy unavailable — modal still shows without it
+    }
   };
 
   const handleFireBriefing = async () => {
@@ -956,7 +1011,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          goal: "FIRE EMERGENCY: The building is on fire right now. Immediately check building status. Identify which floors are at highest risk, which lifts and fire-safety assets are faulty, and give specific evacuation priorities and actions for the facility manager. Be concise and action-oriented.",
+          goal: "FIRE EMERGENCY: The building is on fire right now. Immediately: 1) get_floor_occupancy to see how many people are on each floor, 2) get_faulty_assets to identify broken lifts and fire equipment, 3) get_floor_risk_scores to rank floor danger. Then give a concise evacuation briefing: which floors have the most people AND the highest risk (evacuate first), which lifts are down (avoid), and total people at risk. Be brief and action-oriented.",
         }),
       });
       const data = await res.json();
@@ -1049,6 +1104,7 @@ export default function Home() {
         <FireEmergencyModal
           assets={assets}
           floorRisks={floorRisks}
+          occupancy={fireOccupancy}
           onClose={() => setFireEmergencyOpen(false)}
           onGetBriefing={handleFireBriefing}
           briefing={fireBriefing}

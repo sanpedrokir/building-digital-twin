@@ -272,6 +272,45 @@ ${body}
   }
 );
 
+const getFloorOccupancyTool = tool(
+  async () => {
+    const result = await pool.query(
+      "SELECT floor_no, occupancy_count, last_updated FROM floor_occupancy ORDER BY floor_no"
+    );
+    if (result.rows.length === 0) return "No occupancy data available. The floor_occupancy table may not be seeded yet.";
+    const total = (result.rows as { floor_no: number; occupancy_count: number }[])
+      .reduce((sum, r) => sum + r.occupancy_count, 0);
+    return JSON.stringify({ total_occupancy: total, floors: result.rows });
+  },
+  {
+    name: "get_floor_occupancy",
+    description: "Get the number of people currently on each floor — critical during fire evacuation to identify who may be trapped or stuck",
+    schema: z.object({}),
+  }
+);
+
+const updateFloorOccupancyTool = tool(
+  async ({ floor_no, occupancy_count }) => {
+    const result = await pool.query(
+      `INSERT INTO floor_occupancy (floor_no, occupancy_count, last_updated)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (floor_no) DO UPDATE
+         SET occupancy_count = $2, last_updated = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [floor_no, occupancy_count]
+    );
+    return `Floor ${floor_no} occupancy updated to ${result.rows[0].occupancy_count} people.`;
+  },
+  {
+    name: "update_floor_occupancy",
+    description: "Update the number of people on a specific floor — use when someone reports people stuck on a floor during evacuation",
+    schema: z.object({
+      floor_no: z.number(),
+      occupancy_count: z.number().describe("Number of people currently on this floor"),
+    }),
+  }
+);
+
 // ── Tool registry ─────────────────────────────────────────────────────────────
 
 export const agentTools = [
@@ -285,6 +324,8 @@ export const agentTools = [
   getFloorRiskScoresTool,
   getRepeatOffendersTool,
   sendEmailTool,
+  getFloorOccupancyTool,
+  updateFloorOccupancyTool,
 ];
 
 const toolMap = Object.fromEntries(agentTools.map((t) => [t.name, t]));
@@ -300,6 +341,8 @@ export const TOOL_LABELS: Record<string, string> = {
   get_floor_risk_scores: "Calculating floor risk scores",
   get_repeat_offenders: "Scanning repeat offenders",
   send_email_summary: "Sending email report",
+  get_floor_occupancy: "Checking floor occupancy",
+  update_floor_occupancy: "Updating floor occupancy",
 };
 
 export const AGENT_SYSTEM_PROMPT = `
@@ -321,6 +364,8 @@ Your tools:
 - get_floor_risk_scores: risk level per floor (LOW/MEDIUM/HIGH/CRITICAL)
 - get_repeat_offenders: assets with multiple historical tickets
 - send_email_summary: YOU MUST call this tool to send emails — it delivers real emails instantly
+- get_floor_occupancy: number of people currently on each floor (use during fire/evacuation emergencies)
+- update_floor_occupancy: update the headcount for a floor (use when someone reports people stuck on a floor)
 
 CRITICAL RULES:
 - When the user asks to send an email or report: ALWAYS call send_email_summary — never refuse, never say you cannot
@@ -331,6 +376,7 @@ CRITICAL RULES:
 - Cascade risk: if both Lift A and Lift B are faulty on the same floor → flag floor isolation risk
 - Be efficient — do not repeat tool calls
 - NEVER invent or assume asset names. Only use asset names that are confirmed to exist in the database. If update_asset_status returns an ERROR, stop immediately and tell the user which valid asset names exist — do NOT retry with a made-up name.
+- For FIRE EMERGENCY goals: always call get_floor_occupancy AND get_faulty_assets AND get_floor_risk_scores. Cross-reference: floors with high occupancy AND high risk are the most critical to evacuate first.
 
 Email body format (use this structure):
 RISK LEVEL: [LOW/MEDIUM/HIGH/CRITICAL]
