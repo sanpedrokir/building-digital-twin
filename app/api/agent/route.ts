@@ -114,11 +114,26 @@ const getOpenTicketsTool = tool(
 const updateAssetStatusTool = tool(
   async ({ asset_name, floor_no, status }) => {
     const normalized = STATUS_MAP[status.toLowerCase()] ?? status.toLowerCase();
+
+    // Validate: asset name must exactly match a real asset in the database
+    const check = await pool.query(
+      "SELECT asset_name, floor_no FROM building_assets WHERE LOWER(asset_name) = LOWER($1)",
+      [asset_name]
+    );
+    if (check.rows.length === 0) {
+      const all = await pool.query("SELECT DISTINCT asset_name FROM building_assets ORDER BY asset_name");
+      const valid = (all.rows as { asset_name: string }[]).map((r) => r.asset_name).join(", ");
+      return `ERROR: Asset "${asset_name}" does not exist. Valid asset names are: ${valid}. Do NOT update assets that are not in this list.`;
+    }
+
     const result = await pool.query(
       "UPDATE building_assets SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE LOWER(asset_name) = LOWER($2) AND floor_no = $3 RETURNING *",
       [normalized, asset_name, floor_no]
     );
-    if (result.rows.length === 0) return `Asset not found: ${asset_name} on floor ${floor_no}`;
+    if (result.rows.length === 0) {
+      const floors = (check.rows as { floor_no: number }[]).map((r) => r.floor_no).join(", ");
+      return `Asset "${asset_name}" not found on floor ${floor_no}. It exists on floor(s): ${floors}.`;
+    }
     return `Updated ${result.rows[0].asset_name} on floor ${floor_no} to ${normalized}`;
   },
   {
@@ -315,6 +330,7 @@ CRITICAL RULES:
 - Prioritise: assets affecting lifts or fire safety are CRITICAL
 - Cascade risk: if both Lift A and Lift B are faulty on the same floor → flag floor isolation risk
 - Be efficient — do not repeat tool calls
+- NEVER invent or assume asset names. Only use asset names that are confirmed to exist in the database. If update_asset_status returns an ERROR, stop immediately and tell the user which valid asset names exist — do NOT retry with a made-up name.
 
 Email body format (use this structure):
 RISK LEVEL: [LOW/MEDIUM/HIGH/CRITICAL]

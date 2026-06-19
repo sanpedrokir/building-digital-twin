@@ -86,7 +86,9 @@ function fuzzyWordMatch(w1: string, w2: string): number {
   return Math.max(0, 1 - levenshtein(w1, w2) / maxLen);
 }
 
-// Each query word finds its best fuzzy match in the asset words, averaged
+// Each query word finds its best fuzzy match in the asset words, averaged.
+// Short identifiers (≤2 chars, e.g. "A", "B") in the DB asset name must match exactly
+// in the user's input — prevents "Lift S" from matching "Lift A" or "Lift B".
 function wordSimilarity(a: string, b: string): number {
   const na = normalizeAssetName(a);
   const nb = normalizeAssetName(b);
@@ -94,6 +96,9 @@ function wordSimilarity(a: string, b: string): number {
   const wordsA = na.split(" ").filter(Boolean);
   const wordsB = nb.split(" ").filter(Boolean);
   if (wordsA.length === 0 || wordsB.length === 0) return 0;
+  for (const w of wordsB) {
+    if (w.length <= 2 && !wordsA.includes(w)) return 0;
+  }
   const scoreA = wordsA.map((w) => Math.max(...wordsB.map((v) => fuzzyWordMatch(w, v))));
   const scoreB = wordsB.map((w) => Math.max(...wordsA.map((v) => fuzzyWordMatch(w, v))));
   return ([...scoreA, ...scoreB].reduce((s, x) => s + x, 0)) / (scoreA.length + scoreB.length);
